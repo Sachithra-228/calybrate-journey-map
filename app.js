@@ -527,6 +527,9 @@
         <div class="lbl">Acts</div><div class="list">${actNodes.map((a) => actLi(a)).join('')}</div>
         ${discussionHtml(n, keep)}
         ${refsHtml(n, keepCap)}
+        <div class="lbl">Invite links</div>
+        <div class="links">${['sandbox', 'liveroom'].map((t) => `<div class="lk"><div>${teamBadge(t)}<code>${esc(teamLink(t))}</code></div><button class="btn ghost sm" data-a="copy-link" data-team="${t}">Copy</button></div>`).join('')}
+        ${store.mode === 'demo' ? '<p class="warn">Demo mode: these links open the right login, but data is not shared between devices until the shared backend is connected (see SETUP.md).</p>' : '<p class="hint2">Send each team its own link. They sign in once and the browser remembers them.</p>'}</div>
         <div class="lbl">More</div>
         <div class="p-actions" style="margin-top:0"><div class="row"><button class="btn ghost" id="btn-activity">Activity</button><button class="btn ghost" id="btn-sketches">All sketches</button></div>
         <div class="row"><button class="btn ghost" data-a="tour">Replay intro</button><button class="btn ghost" id="m-export">Export</button>${store.mode === 'demo' ? '<button class="btn ghost" id="m-import">Import</button>' : ''}</div>
@@ -570,6 +573,7 @@
     p.innerHTML = h; p.scrollTop = scroll;
     hydrateThumbs(); renderToolbar();
   }
+  const teamLink = (t) => `${location.origin}${location.pathname}?team=${t}`;
   function actLi(a) {
     const pr = prog(a), sc = stats(a);
     return `<button class="li" data-sel="${a.id}"><i class="d st-${nState(a)}" style="outline:2px solid ${acts[a.ai].color}33"></i><span class="ln" style="color:${acts[a.ai].color}">Act ${acts[a.ai].n}</span><span class="ellip">${esc(acts[a.ai].name)}</span><small>${sc.open ? `<b class="iss">⚠ ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
@@ -839,7 +843,7 @@
   /* ============================================================
      Intro tour (first visit)
      ============================================================ */
-  const TOUR_KEY = 'calybrate-tour-v2';
+  const tourKey = () => 'calybrate-tour-v3-' + (profile ? profile.team : 'x');
   const TOUR = [
     { art: `<svg viewBox="0 0 220 120"><g fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M42 60C70 60 70 22 100 22M42 60C70 60 70 46 100 46M42 60C70 60 70 74 100 74M42 60C70 60 70 98 100 98" stroke="#c084fc"/><path d="M122 22h40M122 46h40M122 74h40M122 98h40" stroke="#6f6390"/></g><rect x="6" y="46" width="44" height="28" rx="8" fill="#ceb7dd"/><g fill="#a855f7"><rect x="100" y="12" width="26" height="20" rx="10"/><rect x="100" y="36" width="26" height="20" rx="10"/><rect x="100" y="64" width="26" height="20" rx="10"/><rect x="100" y="88" width="26" height="20" rx="10"/></g><g fill="#2a1d44" stroke="#8b5cf6"><rect x="160" y="14" width="46" height="16" rx="5"/><rect x="160" y="38" width="46" height="16" rx="5"/><rect x="160" y="66" width="46" height="16" rx="5"/><rect x="160" y="90" width="46" height="16" rx="5"/></g></svg>`,
       title: 'This is the Calybrate roadmap', text: () => `Every screen, role and report of the product on one map — ${chapters.length} chapters and ${order.length} steps, drawn from the original sketches. It's the shared plan between the Sandbox and Liveroom teams.` },
@@ -863,7 +867,7 @@
   }
   function endTour() {
     $('#tour').hidden = true;
-    try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(tourKey(), '1'); } catch (e) { /* ignore */ }
   }
 
   /* ============================================================
@@ -932,6 +936,7 @@
       case 'vw-goto': { const n = N[vw.nodeId]; closeViewer(); if (n) select(n); break; }
       case 'vw-del': if (confirm('Delete this image and its comments?')) { const a2 = S.attachments.find((x) => x.id === vw.id); guard(async () => { await store.deleteAttachment(a2); closeViewer(); await reload(); }); } break;
       case 'tour': showTour(); break;
+      case 'copy-link': { const link = teamLink(el.dataset.team); (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(() => toast(`${TEAMS[el.dataset.team]} link copied`), () => { window.prompt('Copy this link', link); }); break; }
       case 'tour-next': if (tourI < TOUR.length - 1) { tourI++; renderTour(); } else { endTour(); } break;
       case 'tour-skip': endTour(); break;
       case 'tour-play': endTour(); startStory(0); break;
@@ -1018,16 +1023,33 @@
   /* ============================================================
      Sign-in + boot
      ============================================================ */
-  function showLoginScreen() {
+  const wantParam = new URLSearchParams(location.search).get('team');
+  const want = TEAMS[wantParam] ? wantParam : null;
+  function showLoginScreen(msg) {
     const demo = store.mode === 'demo';
     $('#login').hidden = false;
     $('#login-demo').hidden = !demo; $('#login-form').hidden = demo;
+    const card = $('.login-card'); card.classList.remove('t-sandbox', 't-liveroom');
+    if (want) {
+      card.classList.add('t-' + want);
+      $('.login-sub').innerHTML = `${teamBadge(want)} Sign in to the <b>${TEAMS[want]}</b> workspace.`;
+      $$('#login-demo [data-team]').forEach((b) => { b.hidden = b.dataset.team !== want; });
+    }
+    if (!demo) { try { $('#login-email').value = localStorage.getItem('calybrate-last-email') || ''; } catch (e) { /* ignore */ } }
+    if (msg) $('#login-err').textContent = msg;
     document.body.classList.add('locked');
   }
+  const wrongTeamMsg = (p) => `This account belongs to the ${TEAMS[p.team]} team. Use the ${TEAMS[p.team]} link, or sign in with the ${TEAMS[want]} login.`;
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = $('#login-err'), btn = $('#login-go'); err.textContent = ''; btn.disabled = true; btn.textContent = 'Signing in…';
-    try { profile = await store.login({ email: $('#login-email').value.trim(), password: $('#login-pass').value }); await enter(); }
+    try {
+      const email = $('#login-email').value.trim();
+      const p = await store.login({ email, password: $('#login-pass').value });
+      if (want && p.team !== want) { await store.logout(); throw new Error(wrongTeamMsg(p)); }
+      try { localStorage.setItem('calybrate-last-email', email); } catch (e2) { /* ignore */ }
+      profile = p; await enter();
+    }
     catch (ex) { err.textContent = /invalid login/i.test(ex.message || '') ? 'Wrong email or password.' : (ex.message || 'Could not sign in.'); }
     btn.disabled = false; btn.textContent = 'Sign in';
   });
@@ -1049,10 +1071,11 @@
     store.subscribe(() => reload());
     setTimeout(() => $('#hint').classList.add('gone'), 12000);
     stage.addEventListener('pointerdown', () => $('#hint').classList.add('gone'), { once: true });
-    let seen = false; try { seen = !!localStorage.getItem(TOUR_KEY); } catch (e) { /* ignore */ }
+    let seen = false; try { seen = !!localStorage.getItem(tourKey()); } catch (e) { /* ignore */ }
     if (!seen) setTimeout(showTour, 600);
   }
 
   try { profile = await store.init(); } catch (e) { profile = null; }
+  if (profile && want && profile.team !== want) { try { await store.logout(); } catch (e) { /* ignore */ } profile = null; }
   if (profile) await enter(); else showLoginScreen();
 })();

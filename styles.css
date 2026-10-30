@@ -383,3 +383,12 @@ body.locked .stage, body.locked .toolbar, body.locked .legend, body.locked .mini
 .vw-side header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
 .vw-side header small { color: var(--glow); font-weight: 600; font-size: 11.5px; } .vw-side h3 { margin: 2px 0 6px; font: 700 19px/1.25 var(--head); }
 .vw-side .vm { font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* team links */
+.login-card.t-sandbox, .login-card.t-liveroom { border-color: var(--c); box-shadow: var(--shadow), 0 0 80px color-mix(in srgb, var(--c) 35%, transparent); }
+.login-sub .tb { margin-right: 4px; }
+.links { display: grid; gap: 8px; margin-bottom: 12px; }
+.lk { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+.lk > div { min-width: 0; display: grid; gap: 4px; }
+.lk code { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warn { margin: 0; font-size: 12.5px; color: var(--doing); } .hint2 { margin: 0; font-size: 12.5px; color: var(--muted); }

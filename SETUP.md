@@ -40,6 +40,18 @@ window.CALYBRATE_CONFIG = {
 
 Reload the site. You now get a real email + password login. The anon key is safe to publish; every read and write is checked against the access rules from step 2.
 
+## Sending each team its link
+Once the site is live (for example on Vercel), each team gets its own link. Both open the **same** roadmap and see the **same** data:
+
+- Sandbox: `https://YOUR-SITE/?team=sandbox`
+- Liveroom: `https://YOUR-SITE/?team=liveroom`
+
+You can copy both from the app: click your team pill (top-left) → **Invite links**.
+
+- The link opens a sign-in page branded for that team. The first time, the person signs in with their email and password (send the password separately, never inside the link) and sees the short intro tour.
+- The browser then remembers them, so next time the link takes them straight in.
+- If someone opens the wrong team's link with the other team's login, the app refuses and tells them which link to use.
+
 ## How the two teams work together
 - **Sandbox** uploads page-structure / reference images on any section and raises **issues**.
 - **Liveroom** opens those images, comments right on them, updates step status, and resolves issues.
