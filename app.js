@@ -223,7 +223,7 @@
     world = $('#world'); edgeSvg = $('.edges', world);
     all.forEach((n, i) => {
       const el = document.createElement('div');
-      el.className = `node ${n.type}`; el.dataset.id = n.id; el.setAttribute('role', 'button'); el.tabIndex = 0;
+      el.className = `node intro ${n.type}`; el.dataset.id = n.id; el.setAttribute('role', 'button'); el.tabIndex = 0;
       el.title = n.type === 'step' ? `${n.s.id} · ${n.s.t}` : n.type === 'chapter' ? n.ch.name : n.type === 'act' ? acts[n.ai].name : 'Calybrate';
       el.style.width = DIM[n.type][0] + 'px'; el.style.height = DIM[n.type][1] + 'px';
       el.style.setProperty('--d', (n.depth * 0.18 + Math.min(i, 40) * 0.006).toFixed(2) + 's');
@@ -248,7 +248,7 @@
         edgeSvg.appendChild(p); n.edge = p;
       }
     });
-    setTimeout(() => $$('.edge', world).forEach((e) => e.classList.remove('draw')), 1900);
+    setTimeout(() => { $$('.edge', world).forEach((e) => e.classList.remove('draw')); $$('.node', world).forEach((e) => e.classList.remove('intro')); }, 2600);
     built = true;
     world.addEventListener('click', (e) => {
       const el = e.target.closest('.node'); if (!el) return;
@@ -266,11 +266,21 @@
   function apply() {
     if (!built) return;
     layout();
+    // nodes that are about to appear grow out of their parent one after another
+    const fresh = all.filter((n) => n.vis && n.el.classList.contains('hid'));
+    const baseDepth = fresh.length ? Math.min(...fresh.map((n) => n.depth)) : 0;
     all.forEach((n) => {
+      let delay = 0;
+      if (fresh.includes(n)) {
+        const sibs = n.parent ? n.parent.children.filter((c) => c.vis) : [];
+        delay = 80 + (n.depth - baseDepth) * 130 + Math.max(0, sibs.indexOf(n)) * 55;
+      }
+      n.el.style.transitionDelay = delay + 'ms';
       n.el.style.left = n.left + 'px'; n.el.style.top = n.top + 'px';
       n.el.classList.toggle('hid', !n.vis);
       if (n.edge) {
         const d = edgePath(n);
+        n.edge.style.transitionDelay = delay + 'ms';
         n.edge.setAttribute('d', d); n.edge.style.d = `path("${d}")`;
         n.edge.style.opacity = n.vis ? '' : '0';
       }
