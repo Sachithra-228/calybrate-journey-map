@@ -618,7 +618,7 @@
       const blob = await downscale(file, store.mode === 'demo' ? 1100 : 1800, store.mode === 'demo' ? 0.78 : 0.88);
       await store.addAttachment(profile, { nodeId, blob, caption: cap });
       await pushEvent({ nodeId, type: 'upload' });
-      pendingFile = null; await reload(); toast('Image uploaded');
+      pendingFile = null; const capEl = $('#ref-cap'); if (capEl) capEl.value = ''; await reload(); toast('Image uploaded');
     });
     if (sel && $('#ref-up')) renderPanel();
   }
