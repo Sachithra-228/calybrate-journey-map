@@ -26,7 +26,7 @@
   const ico = (k) => `<svg viewBox="0 0 24 24">${ICON[k] || ICON.screen}</svg>`;
   const CHECK = '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const TLOGO = { sandbox: 'assets/sandbox.png', liveroom: 'assets/liveroom.png' };
+  const TLOGO = Object.assign({ sandbox: 'assets/sandbox.png', liveroom: 'assets/liveroom.png' }, window.TEAM_LOGOS || {});
   const teamBadge = (t) => (TLOGO[t] ? `<span class="tlogo t-${esc(t)}" title="${esc(TEAMS[t])}"><img src="${TLOGO[t]}" alt="${esc(TEAMS[t])}"></span>` : esc(TEAMS[t] || t));
   const SI = {
     chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.3A8 8 0 1 1 21 12z"/>',
@@ -91,9 +91,63 @@
     return d < 8 ? d + 'd ago' : new Date(ts).toLocaleDateString();
   }
 
+  /* ----- notifications: what the other team did since you last looked ----- */
+  let seen = { all: 0, nodes: {} }, prevKeys = null;
+  const seenKey = () => 'calybrate-seen-' + (profile ? profile.team : 'x');
+  function loadSeen() { try { seen = Object.assign({ all: 0, nodes: {} }, JSON.parse(localStorage.getItem(seenKey()) || '{}')); } catch (e) { seen = { all: 0, nodes: {} }; } }
+  function saveSeen() { try { localStorage.setItem(seenKey(), JSON.stringify(seen)); } catch (e) { /* ignore */ } }
+  function collectForeign() {
+    const out = [];
+    if (!profile) return out;
+    S.comments.forEach((c) => { if (c.team !== profile.team) out.push({ k: 'c:' + c.id, ts: c.ts, nodeId: c.nodeId, c }); });
+    S.events.forEach((e) => { if (e.team !== profile.team) out.push({ k: 'e:' + e.id, ts: e.ts, nodeId: e.nodeId, e }); });
+    return out;
+  }
+  const countable = (f) => !!f.c || (f.e && f.e.type === 'upload');
+  const isUnread = (f) => f.ts > Math.max(seen.all, seen.nodes[f.nodeId] || 0);
+  function unreadMap() {
+    const m = {};
+    collectForeign().forEach((f) => { if (countable(f) && isUnread(f)) m[f.nodeId] = (m[f.nodeId] || 0) + 1; });
+    return m;
+  }
+  function updateBell() {
+    const total = Object.values(unreadMap()).reduce((a, b) => a + b, 0), bn = $('#bn');
+    if (bn) { bn.hidden = !total; bn.textContent = total > 99 ? '99+' : total; }
+    const bell = $('#bell'); if (bell) bell.title = total ? `${total} new from the other team` : 'Notifications';
+    document.title = (total ? `(${total}) ` : '') + 'Calybrate Roadmap';
+  }
+  function markNodeSeen(id) {
+    const latest = Math.max(Date.now(), ...collectForeign().filter((f) => f.nodeId === id).map((f) => f.ts));
+    if ((seen.nodes[id] || 0) >= latest) return;
+    seen.nodes[id] = latest; saveSeen(); refresh(); updateBell();
+  }
+  function markAllSeen() {
+    seen.all = Math.max(Date.now(), ...collectForeign().map((f) => f.ts)); seen.nodes = {}; saveSeen(); refresh(); updateBell();
+    if (sel) renderPanel();
+  }
+  function showAlert(f) {
+    const box = $('#alerts'); if (!box) return;
+    const team = f.c ? f.c.team : f.e.team;
+    let title, text = '', tab = 'details';
+    if (f.c) { title = f.c.kind === 'issue' ? 'raised an issue' : 'sent a message'; text = f.c.body.slice(0, 110); tab = 'chat'; }
+    else if (f.e.type === 'upload') { title = 'uploaded a reference image'; tab = 'images'; }
+    else if (f.e.type === 'bulk') title = `marked ${f.e.n} steps as done`;
+    else title = `set a step to ${ST[f.e.to] || f.e.to}`;
+    const el = document.createElement('div');
+    el.className = 'alert' + (f.c && f.c.kind === 'issue' ? ' bad' : ''); el.setAttribute('role', 'button'); el.tabIndex = 0;
+    el.dataset.sel = f.nodeId; el.dataset.tab = tab;
+    el.innerHTML = `${teamBadge(team)}<span class="at"><b>${esc(TEAMS[team] || team)} ${esc(title)}</b><small>${esc(nodeName(f.nodeId))}</small>${text ? `<q>${esc(text)}</q>` : ''}</span><span class="ax" data-a="alert-x" role="button" aria-label="Dismiss">&times;</span>`;
+    box.prepend(el);
+    while (box.children.length > 3) box.lastChild.remove();
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 9000);
+  }
   async function reload() {
     try { S = await store.loadAll(); } catch (e) { toast('Could not load shared data: ' + (e.message || e)); return; }
     rebuildIndex();
+    const foreign = collectForeign();
+    if (prevKeys) foreign.filter((f) => !prevKeys.has(f.k)).forEach(showAlert);
+    prevKeys = new Set(foreign.map((f) => f.k));
+    updateBell();
     if (built) { refresh(); drawMinimap(); }
     if (sel) renderPanel();
     if ($('#drawer').classList.contains('open')) renderDrawer();
@@ -291,7 +345,7 @@
 
   function refresh() {
     if (!built) return;
-    const t = prog(root);
+    const t = prog(root), um = unreadMap();
     all.forEach((n) => {
       const el = n.el, st = stateOf(n);
       el.classList.remove('st-todo', 'st-doing', 'st-blocked', 'st-done');
@@ -299,7 +353,8 @@
       el.classList.toggle('sel', sel === n);
       const sc = stats(n);
       const badge = (sc.c || sc.open ? `<span class="cmt">${si('chat')} ${sc.c}${sc.open ? ` <b class="iss">${si('warn')} ${sc.open}</b>` : ''}</span>` : '');
-      $('.slot', el).innerHTML = (n.type === 'step' && n.s.g && n.s.g.length ? '<span class="jump">↪</span>' : '') + badge;
+      const fresh = [n, ...n.desc].some((x) => um[x.id]);
+      $('.slot', el).innerHTML = (n.type === 'step' && n.s.g && n.s.g.length ? '<span class="jump">↪</span>' : '') + badge + (fresh ? '<span class="newdot" title="New from the other team"></span>' : '');
       if (n.type === 'step') {
         if (n.edge) n.edge.style.stroke = status(n.id) === 'done' ? 'var(--done)' : actColor(n);
       } else if (n.type === 'chapter' || n.type === 'act') {
@@ -464,7 +519,7 @@
   /* ============================================================
      Selection (accordion: only the chosen path stays open)
      ============================================================ */
-  let sel = null, panelFor = null, composeKind = 'comment', pendingFile = null;
+  let sel = null, panelFor = null, composeKind = 'comment', pendingFile = null, panelTab = 'details', pendingTab = null, draft = { text: '', cap: '' };
   function focusPath(n) {
     const anc = new Set();
     for (let p = n.parent; p; p = p.parent) anc.add(p);
@@ -478,7 +533,8 @@
     else if (n.type === 'chapter') focusChapterView(n);
     else centerOn(n, 0.8);
   }
-  function select(n) {
+  function select(n, o = {}) {
+    pendingTab = o.tab || null;
     if (story.on) {
       if (!story.done && n.si <= story.i) { story.playing = false; gotoBeat(n.si); return; }
       exitStory(true);
@@ -553,13 +609,15 @@
     const p = $('#panel'), n = sel;
     if (!n) { p.innerHTML = ''; return; }
     const same = panelFor === n.id;
-    const keep = same ? (($('#c-text') || {}).value || '') : '';
-    const keepCap = same ? (($('#ref-cap') || {}).value || '') : '';
-    if (!same) { pendingFile = null; composeKind = 'comment'; }
+    if (same) { const t = $('#c-text'); if (t) draft.text = t.value; const c = $('#ref-cap'); if (c) draft.cap = c.value; }
+    else { draft = { text: '', cap: '' }; pendingFile = null; composeKind = 'comment'; }
+    const keep = draft.text, keepCap = draft.cap;
+    if (pendingTab) panelTab = pendingTab;
+    pendingTab = null;
+    if (panelTab === 'more' && n.type !== 'root') panelTab = 'details';
     const scroll = same ? p.scrollTop : 0;
     panelFor = n.id;
-    const X = '<button class="btn ghost icon-only p-close" data-a="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>';
-    let h = X;
+    let h = '', more = '';
 
     if (n.type === 'root') {
       const t = prog(root);
@@ -571,9 +629,8 @@
         <div class="row"><button class="btn ghost" data-a="expand-all">Open everything</button><button class="btn ghost" data-a="collapse-all">Close all</button></div></div>
         ${openIssuesHtml(n)}
         <div class="lbl">Acts</div><div class="list">${actNodes.map((a) => actLi(a)).join('')}</div>
-        ${discussionHtml(n, keep)}
-        ${refsHtml(n, keepCap)}
-        <div class="lbl">Invite links</div>
+`;
+      more += `<div class="lbl">Invite links</div>
         <div class="links">${['sandbox', 'liveroom'].map((t) => `<div class="lk"><div>${teamBadge(t)}<code>${esc(teamLink(t))}</code></div><button class="btn ghost sm" data-a="copy-link" data-team="${t}">Copy</button></div>`).join('')}
         ${store.mode === 'demo' ? '<p class="warn">Demo mode: these links open the right login, but data is not shared between devices until the shared backend is connected (see SETUP.md).</p>' : '<p class="hint2">Send each team its own link. They sign in once and the browser remembers them.</p>'}</div>
         <div class="lbl">Theme</div>
@@ -587,7 +644,7 @@
       h += `<div class="p-top"><span class="chip id" style="background:${a.color};color:#0b0612">Act ${a.n}</span></div><h3>${esc(a.name)}</h3>
         <p class="desc">${n.children.length} chapters · ${pr.total} steps · ${pr.done} done.</p><div class="bar"><i style="width:${pr.pct * 100}%"></i></div>
         <div class="lbl" style="margin-top:14px">Chapters</div><div class="list">${n.children.map((c) => chLi(c)).join('')}</div>
-        ${openIssuesHtml(n)}${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
+        ${openIssuesHtml(n)}`;
     } else if (n.type === 'chapter') {
       const a = acts[n.ai], pr = prog(n), ch = n.ch, ref = ch.steps[0] && (ch.steps[0].ref || ch.steps[0].hub) ? ch.steps[0] : null;
       const from = ref && ref.g ? ref.g.map((g) => N[g] ? `<button class="chip btnlike" data-sel="${esc(g)}">↩ ${esc(g)} · ${esc(N[g].s.t)}</button>` : '').join('') : '';
@@ -598,8 +655,7 @@
         <div class="p-actions"><button class="btn primary" data-a="story-here">${si('play')} Walk through this chapter</button>
         <div class="row"><button class="btn ghost" data-a="toggle-sel">${n.collapsed ? 'Open steps' : 'Close steps'}</button><button class="btn ghost" data-a="sketch">View sketch</button></div></div>
         ${openIssuesHtml(n)}
-        <div class="lbl">Steps</div><div class="list">${n.steps.map((s) => stepLi(s)).join('')}</div>
-        ${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
+        <div class="lbl">Steps</div><div class="list">${n.steps.map((s) => stepLi(s)).join('')}</div>`;
     } else {
       const s = n.s, ch = chapters[n.ci], st = status(s.id);
       const jumps = (s.g || []).map((g) => N[g] ? `<button class="chip btnlike" data-sel="${esc(g)}">↪ ${esc(g)} · ${esc(N[g].s.t)}</button>` : '').join('');
@@ -615,11 +671,18 @@
         <div class="p-actions">
           <button class="btn good" data-a="done">${si('check')} ${nx ? (st === 'done' ? 'Done — go to next step' : 'Mark complete & next step') : 'Mark complete'}</button>
           <div class="row"><button class="btn ghost" data-a="upto">Done up to here</button><button class="btn ghost" data-a="sketch">View sketch</button></div>
-        </div>
-        ${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
+        </div>`;
     }
-    p.innerHTML = h; p.scrollTop = scroll;
+    const um = unreadMap(), un = [n, ...n.desc].reduce((a, x) => a + (um[x.id] || 0), 0);
+    const tabs = [['details', n.type === 'root' ? 'Overview' : 'Details', 0, 0], ['chat', 'Discussion', nodeComments(n.id).length, un], ['images', 'Images', nodeAtts(n.id).length, 0]];
+    if (n.type === 'root') tabs.push(['more', 'More', 0, 0]);
+    const tabBar = `<div class="ptop"><div class="ptabs" role="tablist">${tabs.map(([k, label, c, u]) => `<button role="tab" data-a="ptab" data-t="${k}" class="${panelTab === k ? 'on' : ''}">${label}${c ? `<b>${c}</b>` : ''}${u ? '<i class="udot"></i>' : ''}</button>`).join('')}</div>
+      <button class="btn ghost icon-only p-close" data-a="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>`;
+    const ctx = `<div class="pctx">${n.type === 'step' ? `<span class="chip id">${esc(n.s.id)}</span>` : ''}<span>${esc(nodeName(n.id))}</span></div>`;
+    const body = panelTab === 'chat' ? ctx + discussionHtml(n, keep) : panelTab === 'images' ? ctx + refsHtml(n, keepCap) : panelTab === 'more' ? more : h;
+    p.innerHTML = tabBar + `<div class="pbody">${body}</div>`; p.scrollTop = scroll;
     hydrateThumbs(); renderToolbar();
+    if (panelTab === 'chat') markNodeSeen(n.id);
   }
   const teamLink = (t) => `${location.origin}${location.pathname}?team=${t}`;
   function actLi(a) {
@@ -666,7 +729,7 @@
       const blob = await downscale(file, store.mode === 'demo' ? 1100 : 1800, store.mode === 'demo' ? 0.78 : 0.88);
       await store.addAttachment(profile, { nodeId, blob, caption: cap });
       await pushEvent({ nodeId, type: 'upload' });
-      pendingFile = null; const capEl = $('#ref-cap'); if (capEl) capEl.value = ''; await reload(); toast('Image uploaded');
+      pendingFile = null; const capEl = $('#ref-cap'); if (capEl) capEl.value = ''; draft.cap = ''; await reload(); toast('Image uploaded');
     });
     if (sel && $('#ref-up')) renderPanel();
   }
@@ -862,7 +925,7 @@
     items.sort((a, b) => b.ts - a.ts);
     $('#d-body').innerHTML = html + (items.length ? items.slice(0, 200).map(feedItem).join('') : '<div class="empty">Nothing here yet — updates from both teams show up here.</div>');
   }
-  const openDrawer = () => { renderDrawer(); $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false'); $('#scrim').hidden = false; };
+  const openDrawer = () => { markAllSeen(); renderDrawer(); $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false'); $('#scrim').hidden = false; };
   function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true'); $('#scrim').hidden = true; }
 
   const LB = { list: [], i: 0, rot: {}, title: '' };
@@ -918,7 +981,7 @@
     if (!v || !sel) { ta.focus(); return; }
     const nodeId = sel.id, kind = composeKind;
     const btn = $('[data-a="post"]'); if (btn) btn.disabled = true;
-    await guard(async () => { await store.addComment(profile, { nodeId, body: v, kind }); ta.value = ''; composeKind = 'comment'; await reload(); toast(kind === 'issue' ? 'Issue raised' : 'Message sent'); });
+    await guard(async () => { await store.addComment(profile, { nodeId, body: v, kind }); ta.value = ''; draft.text = ''; composeKind = 'comment'; await reload(); toast(kind === 'issue' ? 'Issue raised' : 'Message sent'); });
     if (sel && $('[data-a="post"]')) renderPanel();
   }
   async function postViewerComment() {
@@ -930,7 +993,8 @@
 
   document.addEventListener('click', (e) => {
     const t = e.target; let el;
-    if ((el = t.closest('[data-sel]'))) { closeDrawer(); if (vw) closeViewer(); const n = N[el.dataset.sel]; if (n) select(n); return; }
+    if ((el = t.closest('[data-a="alert-x"]'))) { const al = el.closest('.alert'); if (al) al.remove(); return; }
+    if ((el = t.closest('[data-sel]'))) { closeDrawer(); if (vw) closeViewer(); const n = N[el.dataset.sel]; if (el.classList.contains('alert')) el.remove(); if (n) select(n, { tab: el.dataset.tab }); return; }
     const a = (el = t.closest('[data-a]')) ? el.dataset.a : (t.closest('button[id], a[id]') || {}).id;
     switch (a) {
       case 'close': deselect(); break;
@@ -983,6 +1047,8 @@
       case 'tour-play': endTour(); startStory(0); break;
       case 'signout': guard(async () => { await store.logout(); location.reload(); }); break;
       case 'who': select(root); break;
+      case 'bell': openDrawer(); break;
+      case 'ptab': panelTab = el.dataset.t; pendingTab = null; renderPanel(); break;
       case 'btn-activity': openDrawer(); break;
       case 'd-close': closeDrawer(); break;
       case 'btn-sketches': openLightbox(Array.from({ length: D.imageCount }, (_, i) => i + 1), 'All sketches'); break;
@@ -1071,6 +1137,7 @@
     $('#login').hidden = false;
     $('#login-demo').hidden = !demo; $('#login-form').hidden = demo;
     applyTheme(chooseTheme());
+    $$('img[data-logo]').forEach((i) => { i.src = TLOGO[i.dataset.logo]; });
     const card = $('.login-card'); card.classList.remove('t-sandbox', 't-liveroom');
     if (want) {
       card.classList.add('t-' + want);
@@ -1104,7 +1171,7 @@
   async function enter() {
     if (entered) return; entered = true;
     $('#login').hidden = true; document.body.classList.remove('locked');
-    const who = $('#who'); who.hidden = false; who.className = `who t-${profile.team}`; who.innerHTML = `${teamBadge(profile.team)}<span>${esc(new RegExp(TEAMS[profile.team], 'i').test(profile.name) ? profile.name : `${TEAMS[profile.team]} · ${profile.name}`)}</span>`; applyTheme(chooseTheme());
+    loadSeen(); $('#corner').hidden = false; const who = $('#who'); who.hidden = false; who.className = `who t-${profile.team}`; who.innerHTML = `${teamBadge(profile.team)}<span>${esc(new RegExp(TEAMS[profile.team], 'i').test(profile.name) ? profile.name : `${TEAMS[profile.team]} · ${profile.name}`)}</span>`; applyTheme(chooseTheme());
     who.dataset.a = 'who';
     await reload();
     buildMap(); apply(); renderToolbar();

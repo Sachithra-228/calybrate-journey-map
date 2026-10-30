@@ -7,13 +7,17 @@
 <link rel="icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 <main>
   <div class="stage" id="stage" tabindex="0" aria-label="Calybrate roadmap. Drag to move, scroll or pinch to zoom."></div>
 
-  <button class="who" id="who" hidden title="Open the overview"><i class="tdot"></i><span></span></button>
+  <div class="corner" id="corner" hidden>
+    <button class="who" id="who" data-a="who" title="Open the overview"></button>
+    <button class="bell" id="bell" data-a="bell" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><b class="bn" id="bn" hidden></b></button>
+  </div>
+  <div class="alerts" id="alerts" aria-live="polite"></div>
 
   <div class="caption" id="caption" aria-live="polite"></div>
   <div class="toolbar" id="toolbar"></div>
@@ -45,8 +49,8 @@
 
     <div id="login-demo" hidden>
       <div class="demo-note"><b>Demo mode</b> — no shared server is connected yet, so data stays in this browser. Pick a team to try it. See <code>SETUP.md</code> to switch on the real logins.</div>
-      <button class="team-btn t-sandbox" data-team="sandbox"><span class="tlogo"><img src="assets/sandbox.png" alt="Sandbox"></span><span><b>Continue as Sandbox</b><small>Plans the product · uploads references · raises issues</small></span></button>
-      <button class="team-btn t-liveroom" data-team="liveroom"><span class="tlogo"><img src="assets/liveroom.png" alt="Liveroom"></span><span><b>Continue as Liveroom</b><small>Builds the product · updates progress · resolves issues</small></span></button>
+      <button class="team-btn t-sandbox" data-team="sandbox"><span class="tlogo"><img data-logo="sandbox" alt="Sandbox"></span><span><b>Continue as Sandbox</b><small>Plans the product · uploads references · raises issues</small></span></button>
+      <button class="team-btn t-liveroom" data-team="liveroom"><span class="tlogo"><img data-logo="liveroom" alt="Liveroom"></span><span><b>Continue as Liveroom</b><small>Builds the product · updates progress · resolves issues</small></span></button>
     </div>
     <p class="login-err" id="login-err" role="alert"></p>
   </div>
@@ -90,9 +94,10 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="config.js?v=12"></script>
-<script src="store.js?v=12"></script>
-<script src="data.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="config.js?v=14"></script>
+<script src="store.js?v=14"></script>
+<script src="logos.js?v=14"></script>
+<script src="data.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
