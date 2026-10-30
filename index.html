@@ -2,32 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Calybrate Journey Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calybrate Roadmap</title>
 <link rel="icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="#" id="brand" aria-label="Calybrate journey map"><img src="assets/logo.png" alt="Calybrate" height="34"></a>
-
-  <div class="search">
-    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    <input id="q" type="search" placeholder="Search any step — try “launch”, “52C” or “CSV”" autocomplete="off" aria-label="Search steps">
-    <kbd>/</kbd>
-    <div class="results" id="results" hidden></div>
-  </div>
-
-  <input type="file" id="file-import" accept="application/json" hidden>
-</header>
-
 <main>
-  <div class="stage" id="stage" tabindex="0" aria-label="Calybrate journey map. Drag to move, scroll to zoom."></div>
+  <div class="stage" id="stage" tabindex="0" aria-label="Calybrate roadmap. Drag to move, scroll or pinch to zoom."></div>
+
+  <button class="who" id="who" hidden title="Open the overview"><i class="tdot"></i><span></span></button>
 
   <div class="caption" id="caption" aria-live="polite"></div>
-
+  <div class="toolbar" id="toolbar"></div>
+  <div class="minimap" id="minimap"><svg id="mm" preserveAspectRatio="xMidYMid meet"></svg></div>
   <div class="legend" id="legend">
     <b>Status</b>
     <span><i class="lg todo"></i>Not started</span>
@@ -35,13 +25,43 @@
     <span><i class="lg blocked"></i>Blocked</span>
     <span><i class="lg done"></i>Done</span>
   </div>
-
-  <div class="toolbar" id="toolbar"></div>
-  <div class="minimap" id="minimap"><svg id="mm" preserveAspectRatio="xMidYMid meet"></svg></div>
-  <div class="hint" id="hint">Drag to move &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Click a chapter to open it</div>
+  <div class="hint" id="hint">Click an Act to open it &nbsp;·&nbsp; Drag to move &nbsp;·&nbsp; Scroll to zoom</div>
 
   <aside class="panel" id="panel" aria-live="polite"></aside>
 </main>
+
+<!-- sign in -->
+<section class="login" id="login" hidden>
+  <div class="login-card">
+    <div class="login-logo"><img src="assets/logo.png" alt="Calybrate"></div>
+    <h1>Calybrate roadmap</h1>
+    <p class="login-sub">Sign in to continue the development together.</p>
+
+    <form id="login-form" autocomplete="on" hidden>
+      <label>Email<input id="login-email" type="email" required autocomplete="username" placeholder="you@company.com"></label>
+      <label>Password<input id="login-pass" type="password" required autocomplete="current-password" placeholder="••••••••"></label>
+      <button class="btn primary big" id="login-go" type="submit">Sign in</button>
+    </form>
+
+    <div id="login-demo" hidden>
+      <div class="demo-note"><b>Demo mode</b> — no shared server is connected yet, so data stays in this browser. Pick a team to try it. See <code>SETUP.md</code> to switch on the real logins.</div>
+      <button class="team-btn t-sandbox" data-team="sandbox"><i class="tdot"></i><span><b>Continue as Sandbox</b><small>Plans the product · uploads references · raises issues</small></span></button>
+      <button class="team-btn t-liveroom" data-team="liveroom"><i class="tdot"></i><span><b>Continue as Liveroom</b><small>Builds the product · updates progress · resolves issues</small></span></button>
+    </div>
+    <p class="login-err" id="login-err" role="alert"></p>
+  </div>
+</section>
+
+<!-- first-visit tour -->
+<section class="tour" id="tour" hidden></section>
+
+<!-- reference image viewer with comments -->
+<section class="viewer" id="viewer" hidden>
+  <div class="vw-img"><img id="vw-img" alt="Reference image"><button class="vw-nav prev" data-a="vw-prev" aria-label="Previous image">‹</button><button class="vw-nav next" data-a="vw-next" aria-label="Next image">›</button></div>
+  <aside class="vw-side" id="vw-side"></aside>
+</section>
+
+<input type="file" id="file-import" accept="application/json" hidden>
 
 <aside class="drawer" id="drawer" aria-hidden="true">
   <div class="drawer-head">
@@ -49,7 +69,7 @@
     <button class="btn ghost icon-only" id="d-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   </div>
   <div class="d-tabs" id="d-tabs">
-    <button data-f="all" class="on">All</button><button data-f="comment">Comments</button><button data-f="status">Status</button>
+    <button data-f="all" class="on">All</button><button data-f="comment">Comments</button><button data-f="issue">Issues</button><button data-f="status">Status</button>
   </div>
   <div class="d-body" id="d-body"></div>
 </aside>
@@ -70,6 +90,8 @@
 
 <div class="toast" id="toast" role="status"></div>
 
+<script src="config.js"></script>
+<script src="store.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

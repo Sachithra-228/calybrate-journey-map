@@ -4,10 +4,13 @@ An interactive black-and-purple mind map of the Calybrate product journey — fr
 
 ## Features
 
-- **Full map on open** — Calybrate → 4 acts → 15 chapters → 117 steps. Click a chapter to unfold it.
-- **Play the story** — a hands-free walkthrough that starts at Calybrate and reveals every step in order, with captions and optional **voice narration** (browser text-to-speech). Pause, skip, change speed (1×–2×) or mute at any time.
-- **Track progress** — set each step to Not started / In progress / Blocked / Done, leave comments, see an activity log.
-- **Search, minimap, zoom/pan** — and pinch-to-zoom on touch devices. Works on phones.
+- **Roadmap map** — Calybrate → 4 acts → 15 chapters → 117 steps. Open one part at a time: click an Act, then a chapter, then a step.
+- **Play the story** — a hands-free walkthrough from Calybrate down through every step, with captions and optional **voice narration** (browser text-to-speech). Pause, skip, change speed or mute at any time.
+- **Two team logins (Sandbox ⇄ Liveroom)** — separate sign-ins, shared progress. Works in local demo mode out of the box; see [`SETUP.md`](SETUP.md) to connect the real shared backend (Supabase).
+- **Discussion on every section** — comment or raise an **issue** on any act, chapter or step; issues stay flagged until resolved. Live updates for both teams.
+- **Reference images** — upload page-structure / reference images on any section; the other team opens them and comments right on the image.
+- **Track progress** — Not started / In progress / Blocked / Done, with an activity feed of who did what.
+- **Mobile friendly** — compact layout, pinch-to-zoom, bottom-sheet panel.
 - **Sketch viewer** — every chapter links back to the original photo it came from.
 
 ## Run it
@@ -22,6 +25,6 @@ Then visit <http://localhost:5173>.
 
 ## Notes
 
-- Progress and comments are saved in the browser (`localStorage`). Use **⋯ → Export / Import** to share a copy.
-- The journey content lives in `data.js`; the app is `app.js` + `styles.css`.
+- **Demo mode** (default): everything stays in this browser (`localStorage`). **Shared mode**: set the two values in `config.js` after following `SETUP.md`.
+- The roadmap content lives in `data.js`; the app is `app.js`, `store.js` (data layer) and `styles.css`.
 - Voice uses the browser's built-in speech voices, so it sounds different per browser/OS.

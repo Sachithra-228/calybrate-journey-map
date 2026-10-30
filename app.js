@@ -1,7 +1,8 @@
-(function () {
+(async function () {
   'use strict';
   const D = window.CALYBRATE;
   const chapters = D.chapters, acts = D.acts;
+  const TEAMS = window.CalybrateStore.TEAMS;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -24,14 +25,27 @@
   };
   const ico = (k) => `<svg viewBox="0 0 24 24">${ICON[k] || ICON.screen}</svg>`;
   const CHECK = '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const teamBadge = (t) => `<span class="tb t-${esc(t)}">${esc(TEAMS[t] || t)}</span>`;
 
-  /* ---------- progress state (saved in this browser) ---------- */
-  const KEY = 'calybrate-journey-v1';
-  let S = { steps: {}, comments: {}, log: [] };
-  try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* private mode */ }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } };
+  /* ============================================================
+     Data: shared store (demo or Supabase) + in-memory copy
+     ============================================================ */
+  const store = await window.CalybrateStore.create();
+  let profile = null;
+  let S = { steps: {}, comments: [], attachments: [], events: [] };
+  let IDX = {};
+  const NONE = { comments: [], atts: [] };
+  function rebuildIndex() {
+    IDX = {};
+    const slot = (id) => (IDX[id] = IDX[id] || { comments: [], atts: [] });
+    S.comments.forEach((c) => slot(c.nodeId).comments.push(c));
+    S.attachments.forEach((a) => slot(a.nodeId).atts.push(a));
+  }
   const status = (id) => (S.steps[id] && S.steps[id].status) || 'todo';
+  const nodeComments = (id) => (IDX[id] || NONE).comments.filter((c) => !c.attachmentId);
+  const nodeAtts = (id) => (IDX[id] || NONE).atts;
+
   function ago(ts) {
     const m = Math.round((Date.now() - ts) / 60000);
     if (m < 1) return 'just now';
@@ -41,17 +55,29 @@
     const d = Math.round(h / 24);
     return d < 8 ? d + 'd ago' : new Date(ts).toLocaleDateString();
   }
+
+  async function reload() {
+    try { S = await store.loadAll(); } catch (e) { toast('Could not load shared data: ' + (e.message || e)); return; }
+    rebuildIndex();
+    if (built) { refresh(); drawMinimap(); }
+    if (sel) renderPanel();
+    if ($('#drawer').classList.contains('open')) renderDrawer();
+    if (vw) renderViewer();
+  }
+  async function guard(fn) {
+    try { await fn(); } catch (e) { toast(e.message || 'Something went wrong'); try { await reload(); } catch (e2) { /* ignore */ } }
+  }
+  function pushEvent(ev) {
+    S.events.push({ id: 'tmp' + Date.now() + Math.random(), ts: Date.now(), team: profile.team, name: profile.name, ...ev });
+    return store.addEvent(profile, ev);
+  }
   function setStatus(id, to, opts = {}) {
     const from = status(id);
-    if (from === to) return;
+    if (from === to) return Promise.resolve();
     S.steps[id] = { status: to, ts: Date.now() };
-    if (!opts.silent) S.log.push({ ts: Date.now(), id, type: 'status', from, to });
-    save();
-  }
-  function addComment(id, text) {
-    (S.comments[id] = S.comments[id] || []).push({ ts: Date.now(), text });
-    S.log.push({ ts: Date.now(), id, type: 'comment', text });
-    save();
+    const jobs = [store.setStatus(profile, id, to)];
+    if (!opts.silent) jobs.push(pushEvent({ nodeId: id, type: 'status', from, to }));
+    return Promise.all(jobs);
   }
 
   /* ============================================================
@@ -61,7 +87,7 @@
   const root = { id: 'root', type: 'root', children: [], collapsed: false };
   N.root = root; all.push(root);
   acts.forEach((a, ai) => {
-    const an = { id: 'act-' + ai, type: 'act', ai, children: [], parent: root, collapsed: false };
+    const an = { id: 'act-' + ai, type: 'act', ai, children: [], parent: root, collapsed: true };
     root.children.push(an); N[an.id] = an; actNodes.push(an); all.push(an);
     chapters.forEach((ch, ci) => {
       if (ch.act !== ai) return;
@@ -79,12 +105,14 @@
   });
   (function depth(n, d) { n.depth = d; n.children.forEach((c) => depth(c, d + 1)); })(root, 0);
   const descendants = (n) => n.children.flatMap((c) => [c, ...descendants(c)]);
-  const stepsOf = (n) => (n.type === 'step' ? [n] : descendants(n).filter((x) => x.type === 'step'));
+  all.forEach((n, i) => {
+    n.si = i; n.desc = descendants(n);
+    n.steps = n.type === 'step' ? [n] : n.desc.filter((x) => x.type === 'step');
+  });
 
   function prog(n) {
-    const steps = stepsOf(n.type === 'root' ? { type: 'x', children: root.children } : n);
-    const p = { done: 0, doing: 0, blocked: 0, total: steps.length };
-    steps.forEach((s) => { const st = status(s.id); if (st !== 'todo') p[st]++; });
+    const p = { done: 0, doing: 0, blocked: 0, total: n.steps.length };
+    n.steps.forEach((s) => { const st = status(s.id); if (st !== 'todo') p[st]++; });
     p.pct = p.total ? p.done / p.total : 0;
     return p;
   }
@@ -96,7 +124,22 @@
     return 'todo';
   }
   const stateOf = (n) => (n.type === 'step' ? status(n.id) : n.type === 'root' ? null : nState(n));
-  function firstOpen() { return order.find((n) => status(n.id) !== 'done') || null; }
+  const firstOpen = () => order.find((n) => status(n.id) !== 'done') || null;
+  function stats(n) {
+    let c = 0, open = 0;
+    [n, ...n.desc].forEach((x) => {
+      const ix = IDX[x.id]; if (!ix) return;
+      ix.comments.forEach((m) => { c++; if (m.kind === 'issue' && !m.resolved) open++; });
+    });
+    return { c, open };
+  }
+  function nodeName(id) {
+    const n = N[id]; if (!n) return id;
+    if (n.type === 'step') return `${n.s.id} · ${n.s.t}`;
+    if (n.type === 'chapter') return `Chapter ${n.ch.n} · ${n.ch.name}`;
+    if (n.type === 'act') return `Act ${acts[n.ai].n} · ${acts[n.ai].name}`;
+    return 'Calybrate (general)';
+  }
 
   /* ============================================================
      Layout (left → right, mind-map style)
@@ -110,7 +153,6 @@
   const CAN_SPEAK = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
   const story = { on: false, i: 0, playing: false, done: false, voice: CAN_SPEAK, speed: 1, timer: 0, fb: 0, token: 0 };
   try { if (localStorage.getItem('calybrate-voice') === 'off') story.voice = false; } catch (e) { /* ignore */ }
-  all.forEach((n, i) => { n.si = i; });
   const storyHidden = (c) => story.on && c.si > story.i;
 
   function layout() {
@@ -135,48 +177,59 @@
   }
 
   /* ============================================================
-     DOM: nodes + edges (built once, then moved around)
+     DOM: nodes + edges (built once after sign-in, then moved around)
      ============================================================ */
   const stage = $('#stage');
-  stage.innerHTML = '<div class="world" id="world"><svg class="edges" width="1" height="1"></svg></div>';
-  const world = $('#world'), edgeSvg = $('.edges', world);
+  let world = null, edgeSvg = null, built = false;
   const actColor = (n) => (n.ai != null ? acts[n.ai].color : '#ceb7dd');
 
-  all.forEach((n, i) => {
-    const el = document.createElement('div');
-    el.className = `node ${n.type}`; el.dataset.id = n.id;
-    el.title = n.type === 'step' ? `${n.s.id} · ${n.s.t}` : n.type === 'chapter' ? n.ch.name : ''; el.setAttribute('role', 'button'); el.tabIndex = 0;
-    el.style.width = DIM[n.type][0] + 'px'; el.style.height = DIM[n.type][1] + 'px';
-    el.style.setProperty('--d', (n.depth * 0.18 + Math.min(i, 40) * 0.006).toFixed(2) + 's');
-    if (n.ai != null) el.style.setProperty('--c', acts[n.ai].color);
-    if (n.type === 'root') {
-      el.innerHTML = `<div class="plate"><img src="assets/logo.png" alt="Calybrate"></div><div class="rbar"><i></i></div><div class="rtxt"></div>`;
-    } else if (n.type === 'act') {
-      el.innerHTML = `<div class="txt"><span class="nid">ACT ${acts[n.ai].n}</span><span class="ttl">${esc(acts[n.ai].name)}</span><span class="sub"></span></div>`;
-    } else if (n.type === 'chapter') {
-      el.innerHTML = `<span class="num">${n.ch.n}</span><div class="txt"><span class="ttl"><span class="t-full">${esc(n.ch.name)}</span><span class="t-short">${esc(n.ch.short)}</span></span><div class="meter"><div class="bar"><i></i><i class="doing"></i><i class="blocked"></i></div><span class="cnt"></span></div></div>`;
-    } else {
-      const s = n.s;
-      el.innerHTML = `<span class="ico">${ico(s.k)}</span><span class="txt"><span class="nid">${esc(s.id)}</span><span class="ttl">${esc(s.t)}</span></span><i class="dot">${CHECK}</i><span class="slot"></span>`;
-    }
-    if (n.children.length) el.insertAdjacentHTML('beforeend', '<button class="hdl" tabindex="-1" aria-label="Expand or collapse"></button>');
-    world.appendChild(el); n.el = el;
-    if (n.parent) {
-      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p.setAttribute('class', 'edge draw'); p.setAttribute('pathLength', '1');
-      p.style.strokeWidth = n.depth === 1 ? 5 : n.depth === 2 ? 4 : n.depth === 3 ? 3 : 2.4;
-      p.style.animationDelay = (n.depth * 0.18).toFixed(2) + 's';
-      edgeSvg.appendChild(p); n.edge = p;
-    }
-  });
-  setTimeout(() => $$('.edge', world).forEach((e) => e.classList.remove('draw')), 1900);
+  function buildMap() {
+    stage.innerHTML = '<div class="world" id="world"><svg class="edges" width="1" height="1"></svg></div>';
+    world = $('#world'); edgeSvg = $('.edges', world);
+    all.forEach((n, i) => {
+      const el = document.createElement('div');
+      el.className = `node ${n.type}`; el.dataset.id = n.id; el.setAttribute('role', 'button'); el.tabIndex = 0;
+      el.title = n.type === 'step' ? `${n.s.id} · ${n.s.t}` : n.type === 'chapter' ? n.ch.name : n.type === 'act' ? acts[n.ai].name : 'Calybrate';
+      el.style.width = DIM[n.type][0] + 'px'; el.style.height = DIM[n.type][1] + 'px';
+      el.style.setProperty('--d', (n.depth * 0.18 + Math.min(i, 40) * 0.006).toFixed(2) + 's');
+      if (n.ai != null) el.style.setProperty('--c', acts[n.ai].color);
+      if (n.type === 'root') {
+        el.innerHTML = `<div class="plate"><img src="assets/logo.png" alt="Calybrate"></div><div class="rbar"><i></i></div><div class="rtxt"></div><span class="slot"></span>`;
+      } else if (n.type === 'act') {
+        el.innerHTML = `<div class="txt"><span class="nid">ACT ${acts[n.ai].n}</span><span class="ttl">${esc(acts[n.ai].name)}</span><span class="sub"></span></div><span class="slot"></span>`;
+      } else if (n.type === 'chapter') {
+        el.innerHTML = `<span class="num">${n.ch.n}</span><div class="txt"><span class="ttl"><span class="t-full">${esc(n.ch.name)}</span><span class="t-short">${esc(n.ch.short)}</span></span><div class="meter"><div class="bar"><i></i><i class="doing"></i><i class="blocked"></i></div><span class="cnt"></span></div></div><span class="slot"></span>`;
+      } else {
+        const s = n.s;
+        el.innerHTML = `<span class="ico">${ico(s.k)}</span><span class="txt"><span class="nid">${esc(s.id)}</span><span class="ttl">${esc(s.t)}</span></span><i class="dot">${CHECK}</i><span class="slot"></span>`;
+      }
+      if (n.children.length) el.insertAdjacentHTML('beforeend', '<button class="hdl" tabindex="-1" aria-label="Expand or collapse"></button>');
+      world.appendChild(el); n.el = el;
+      if (n.parent) {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('class', 'edge draw'); p.setAttribute('pathLength', '1');
+        p.style.strokeWidth = n.depth === 1 ? 5 : n.depth === 2 ? 4 : n.depth === 3 ? 3 : 2.4;
+        p.style.animationDelay = (n.depth * 0.18).toFixed(2) + 's';
+        edgeSvg.appendChild(p); n.edge = p;
+      }
+    });
+    setTimeout(() => $$('.edge', world).forEach((e) => e.classList.remove('draw')), 1900);
+    built = true;
+    world.addEventListener('click', (e) => {
+      const el = e.target.closest('.node'); if (!el) return;
+      const n = N[el.dataset.id];
+      if (e.target.closest('.hdl')) { e.stopPropagation(); toggleNode(n); return; }
+      select(n);
+    });
+    world.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('node')) { e.preventDefault(); select(N[e.target.dataset.id]); } });
+  }
 
   function edgePath(n) {
     const p = n.parent, x1 = p.left + p.w, y1 = p.top + p.h / 2, x2 = n.left, y2 = n.top + n.h / 2, mx = (x1 + x2) / 2;
     return `M${x1.toFixed(1)},${y1.toFixed(1)} C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
   }
-
   function apply() {
+    if (!built) return;
     layout();
     all.forEach((n) => {
       n.el.style.left = n.left + 'px'; n.el.style.top = n.top + 'px';
@@ -189,18 +242,20 @@
     });
     refresh(); drawMinimap();
   }
+  const hdlCount = (n) => (n.type === 'act' ? n.children.length : n.type === 'chapter' ? n.steps.length : n.desc.length);
 
-  /* ---------- dynamic content (status, counts, handles) ---------- */
   function refresh() {
+    if (!built) return;
     const t = prog(root);
     all.forEach((n) => {
       const el = n.el, st = stateOf(n);
       el.classList.remove('st-todo', 'st-doing', 'st-blocked', 'st-done');
       if (st) el.classList.add('st-' + st);
       el.classList.toggle('sel', sel === n);
+      const sc = stats(n);
+      const badge = (sc.c || sc.open ? `<span class="cmt">💬 ${sc.c}${sc.open ? ` <b class="iss">⚠ ${sc.open}</b>` : ''}</span>` : '');
+      $('.slot', el).innerHTML = (n.type === 'step' && n.s.g && n.s.g.length ? '<span class="jump">↪</span>' : '') + badge;
       if (n.type === 'step') {
-        const c = (S.comments[n.id] || []).length;
-        $('.slot', el).innerHTML = (n.s.g && n.s.g.length ? '<span class="jump">↪</span>' : '') + (c ? `<span class="cmt">💬 ${c}</span>` : '');
         if (n.edge) n.edge.style.stroke = status(n.id) === 'done' ? 'var(--done)' : actColor(n);
       } else if (n.type === 'chapter' || n.type === 'act') {
         const p = prog(n);
@@ -218,9 +273,9 @@
       }
       const h = $('.hdl', el);
       if (h) {
-        h.style.display = story.on ? 'none' : '';
-        h.innerHTML = n.collapsed ? '+' + descendants(n).length : '−';
-        h.title = n.collapsed ? 'Expand' : 'Collapse';
+        h.style.display = story.on || n.type === 'root' ? 'none' : '';
+        h.innerHTML = n.collapsed ? '+' + hdlCount(n) : '−';
+        h.title = n.collapsed ? 'Open' : 'Close';
       }
     });
   }
@@ -235,6 +290,7 @@
     return innerWidth <= 800 ? { w, h: h - Math.min(h * 0.62, 460) } : { w: w - 404, h };
   }
   function applyCam() {
+    if (!world) return;
     world.style.transform = `translate(${cam.x}px,${cam.y}px) scale(${cam.k})`;
     world.classList.toggle('far', cam.k < 0.42);
     updateViewport();
@@ -259,7 +315,12 @@
     return [Math.min(...v.map((n) => n.left)), Math.min(...v.map((n) => n.top)), Math.max(...v.map((n) => n.left + n.w)), Math.max(...v.map((n) => n.top + n.h))];
   };
   const fitAll = (maxK = 1) => fitRect(...boundsOf(all), maxK);
-  const fitNode = (n, maxK = 1) => fitRect(...boundsOf([n, ...descendants(n)]), maxK, 90);
+  function focusChapterView(n) {
+    if (mobile) {
+      const a = area(); cam.k = 0.68;
+      cam.x = a.w * 0.05 - n.left * cam.k; cam.y = a.h / 2 - (n.top + n.h / 2) * cam.k; applyCam();
+    } else fitRect(...boundsOf([n.parent, n, ...n.desc]), 1, 90);
+  }
   function zoomAt(f, px, py) {
     const a = area(), x = px == null ? a.w / 2 : px, y = py == null ? a.h / 2 : py;
     const nk = Math.min(1.6, Math.max(0.12, cam.k * f)), s = nk / cam.k;
@@ -270,7 +331,7 @@
     const ptrs = new Map();
     let drag = null, pinch = null, wt;
     stage.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.hdl')) return;
+      if (!world || e.target.closest('.hdl')) return;
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (ptrs.size === 1) drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false, onNode: !!e.target.closest('.node') };
       else if (ptrs.size === 2) {
@@ -299,14 +360,15 @@
     });
     const end = (e) => {
       ptrs.delete(e.pointerId);
-      if (pinch && ptrs.size < 2) { pinch = null; drag = null; world.classList.remove('nogo'); }
+      if (pinch && ptrs.size < 2) { pinch = null; drag = null; if (world) world.classList.remove('nogo'); }
       if (drag && e.pointerId === drag.id) {
-        const was = drag; drag = null; stage.classList.remove('drag'); world.classList.remove('nogo');
+        const was = drag; drag = null; stage.classList.remove('drag'); if (world) world.classList.remove('nogo');
         if (!was.moved && !was.onNode && sel && !story.on) deselect();
       }
     };
     stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
     stage.addEventListener('wheel', (e) => {
+      if (!world) return;
       e.preventDefault();
       world.classList.add('nogo'); clearTimeout(wt); wt = setTimeout(() => world.classList.remove('nogo'), 160);
       if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY)) { cam.x -= e.deltaX; cam.y -= e.deltaY; applyCam(); return; }
@@ -319,6 +381,7 @@
   const mmEl = $('#minimap'), mm = $('#mm');
   let mmT = null;
   function drawMinimap() {
+    if (!built) return;
     const W = mmEl.clientWidth || 210, H = mmEl.clientHeight || 150;
     const [x1, y1, x2, y2] = boundsOf(all), bw = x2 - x1, bh = y2 - y1, s = Math.min((W - 12) / bw, (H - 12) / bh);
     mmT = { x1, y1, s, ox: (W - bw * s) / 2, oy: (H - bh * s) / 2, W, H };
@@ -342,6 +405,7 @@
   (function minimapDrag() {
     let on = false;
     const go = (e) => {
+      if (!mmT) return;
       const r = mmEl.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
       const wx = (px - mmT.ox) / mmT.s + mmT.x1, wy = (py - mmT.oy) / mmT.s + mmT.y1;
       world.classList.add('nogo');
@@ -349,68 +413,130 @@
     };
     mmEl.addEventListener('pointerdown', (e) => { on = true; mmEl.setPointerCapture(e.pointerId); go(e); });
     mmEl.addEventListener('pointermove', (e) => { if (on) go(e); });
-    mmEl.addEventListener('pointerup', () => { on = false; world.classList.remove('nogo'); });
+    mmEl.addEventListener('pointerup', () => { on = false; if (world) world.classList.remove('nogo'); });
   })();
 
   /* ============================================================
-     Selection + panel
+     Selection (accordion: only the chosen path stays open)
      ============================================================ */
-  let sel = null, panelFor = null;
-  function expandTo(n) {
-    let changed = false;
-    for (let p = n.parent; p; p = p.parent) if (p.collapsed) { p.collapsed = false; changed = true; }
-    return changed;
+  let sel = null, panelFor = null, composeKind = 'comment', pendingFile = null;
+  function focusPath(n) {
+    const anc = new Set();
+    for (let p = n.parent; p; p = p.parent) anc.add(p);
+    [...actNodes, ...chNodes].forEach((x) => { if (!anc.has(x) && x !== n) x.collapsed = true; });
+    for (let p = n.parent; p; p = p.parent) p.collapsed = false;
+    if (n.type === 'act' || n.type === 'chapter') n.collapsed = false;
   }
-  function select(n, o = {}) {
+  function cameraFor(n) {
+    if (n.type === 'root' || n.type === 'act') fitAll(1);
+    else if (n.type === 'chapter') focusChapterView(n);
+    else centerOn(n, 0.8);
+  }
+  function select(n) {
     if (story.on) {
       if (!story.done && n.si <= story.i) { story.playing = false; gotoBeat(n.si); return; }
       exitStory(true);
     }
-    const changed = expandTo(n);
-    let fitCh = false;
-    if (n.type === 'chapter' && n.collapsed && o.open !== false) { n.collapsed = false; fitCh = true; }
+    focusPath(n);
     sel = n;
     document.body.classList.add('panel-open');
-    if (changed || fitCh) apply(); else refresh();
-    renderPanel();
-    if (mobile && n.type === 'chapter') {
-      const a = area(); cam.k = 0.68;
-      cam.x = a.w * 0.05 - n.left * cam.k; cam.y = a.h / 2 - (n.top + n.h / 2) * cam.k; applyCam();
-    } else if (n.type === 'chapter' || n.type === 'act') fitNode(n, 1);
-    else if (n.type === 'root') fitAll(1);
-    else if (o.center !== false) centerOn(n, 0.8);
-    drawMinimap();
+    apply(); renderPanel(); cameraFor(n); drawMinimap();
   }
-  function deselect() {
-    sel = null; document.body.classList.remove('panel-open'); refresh(); renderToolbar();
+  function deselect() { sel = null; document.body.classList.remove('panel-open'); refresh(); renderToolbar(); }
+  function toggleNode(n) {
+    if (story.on) return;
+    if (n.collapsed) { if (n.type === 'act' || n.type === 'chapter') focusPath(n); else n.collapsed = false; } else n.collapsed = true;
+    apply();
+    if (!n.collapsed) cameraFor(n);
+  }
+
+  /* ============================================================
+     Side panel
+     ============================================================ */
+  function msgHtml(m) {
+    const mine = profile && m.authorId === profile.id;
+    return `<div class="msg ${m.kind === 'issue' ? 'issue' : ''} ${m.resolved ? 'resolved' : ''}">
+      <header>${teamBadge(m.team)}<b>${esc(m.name)}</b><span>${ago(m.ts)}</span></header>
+      ${m.kind === 'issue' ? `<span class="pill ${m.resolved ? 'ok' : 'bad'}">${m.resolved ? '✓ Issue resolved' : '⚠ Open issue'}</span>` : ''}
+      <p>${esc(m.body)}</p>
+      <footer>${m.kind === 'issue' ? `<button class="lnk" data-a="resolve" data-cid="${esc(m.id)}" data-to="${m.resolved ? '0' : '1'}">${m.resolved ? 'Reopen' : 'Mark resolved'}</button>` : ''}${mine ? `<button class="lnk danger-t" data-a="del-comment" data-cid="${esc(m.id)}">Delete</button>` : ''}</footer>
+    </div>`;
+  }
+  function threadHtml(id) {
+    const items = [];
+    nodeComments(id).forEach((c) => items.push({ t: 'c', ts: c.ts, c }));
+    S.events.filter((e) => e.nodeId === id && e.type === 'status').forEach((e) => items.push({ t: 's', ts: e.ts, e }));
+    items.sort((a, b) => a.ts - b.ts);
+    return items.map((m) => m.t === 'c' ? msgHtml(m.c)
+      : `<div class="sys" style="--c:${STCOL[m.e.to]}"><span>${teamBadge(m.e.team)} set status to <b>${ST[m.e.to]}</b> · ${ago(m.ts)}</span></div>`).join('');
+  }
+  function discussionHtml(n, keepTxt) {
+    const cnt = nodeComments(n.id).length;
+    return `<div class="lbl">Discussion${cnt ? ` · ${cnt}` : ''}</div>
+      <div class="thread">${threadHtml(n.id) || '<div class="empty">No messages yet. Start the conversation below.</div>'}</div>
+      <div class="kindseg" id="kindseg"><button data-k="comment" class="${composeKind === 'comment' ? 'on' : ''}">💬 Comment</button><button data-k="issue" class="${composeKind === 'issue' ? 'on bad' : ''}">⚠ Raise an issue</button></div>
+      <textarea id="c-text" placeholder="${composeKind === 'issue' ? 'Describe the issue so the other team can act on it…' : 'Write a message to the other team…'}">${esc(keepTxt)}</textarea>
+      <div class="post-row"><span>Ctrl + Enter to send</span><button class="btn primary" data-a="post">${composeKind === 'issue' ? 'Raise issue' : 'Send'}</button></div>`;
+  }
+  function refsHtml(n, keepCap) {
+    const atts = nodeAtts(n.id);
+    return `<div class="lbl">Reference images${atts.length ? ` · ${atts.length}` : ''}</div>
+      ${atts.length ? `<div class="refgrid">${atts.map((a) => {
+        const nc = (IDX[n.id] || NONE).comments.filter((c) => c.attachmentId === a.id).length;
+        return `<button class="ref" data-a="open-ref" data-aid="${esc(a.id)}" title="${esc(a.caption || 'Reference image')}"><img data-aid="${esc(a.id)}" alt=""><span class="rc">${teamBadge(a.team)}${nc ? ` 💬 ${nc}` : ''}</span></button>`;
+      }).join('')}</div>` : '<div class="empty">No images yet. Upload page structures or references so the other team can comment on them.</div>'}
+      <div class="uploader">
+        <label class="btn ghost sm" for="ref-file">＋ Choose image</label><input type="file" id="ref-file" accept="image/*" hidden>
+        <span class="fname" id="ref-name">${pendingFile ? esc(pendingFile.name) : 'No file chosen'}</span>
+        <input id="ref-cap" type="text" maxlength="200" placeholder="Caption (optional)" value="${esc(keepCap)}">
+        <button class="btn primary sm" data-a="upload" id="ref-up" ${pendingFile ? '' : 'disabled'}>Upload</button>
+      </div>`;
+  }
+  function openIssuesHtml(n) {
+    const list = [];
+    [n, ...n.desc].forEach((x) => (IDX[x.id] || NONE).comments.forEach((c) => { if (c.kind === 'issue' && !c.resolved) list.push({ x, c }); }));
+    if (!list.length) return '';
+    return `<div class="lbl bad">Open issues in this section · ${list.length}</div><div class="list">${list.map(({ x, c }) => `<button class="li" data-sel="${esc(x.id)}"><i class="d st-blocked"></i><span class="ln">${esc(x.type === 'step' ? x.s.id : x.type === 'chapter' ? 'Ch ' + x.ch.n : x.type === 'act' ? 'Act' : '·')}</span><span class="ellip">${esc(c.body)}</span><small>${esc(TEAMS[c.team] || c.team)}</small></button>`).join('')}</div>`;
+  }
+  function chLi(c) {
+    const pr = prog(c), st = nState(c), sc = stats(c);
+    return `<button class="li" data-sel="${c.id}"><i class="d st-${st}"></i><span class="ln">Ch ${c.ch.n}</span><span class="ellip">${esc(c.ch.name)}</span><small>${sc.open ? `<b class="iss">⚠ ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
   }
 
   function renderPanel() {
     const p = $('#panel'), n = sel;
     if (!n) { p.innerHTML = ''; return; }
-    const keep = panelFor === n.id ? (($('#c-text') || {}).value || '') : '';
-    const scroll = panelFor === n.id ? p.scrollTop : 0;
+    const same = panelFor === n.id;
+    const keep = same ? (($('#c-text') || {}).value || '') : '';
+    const keepCap = same ? (($('#ref-cap') || {}).value || '') : '';
+    if (!same) { pendingFile = null; composeKind = 'comment'; }
+    const scroll = same ? p.scrollTop : 0;
     panelFor = n.id;
     const X = '<button class="btn ghost icon-only p-close" data-a="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>';
     let h = X;
 
     if (n.type === 'root') {
-      const t = prog(root), fo = firstOpen();
-      h += `<div class="p-top"><span class="chip id">Overview</span></div><h3>Calybrate journey</h3>
-        <p class="desc">From the landing page to leadership insight — ${chapters.length} chapters and ${t.total} steps, taken from the hand-drawn sketches.</p>
+      const t = prog(root);
+      h += `<div class="p-top"><span class="chip id">Overview</span>${profile ? teamBadge(profile.team) : ''}</div><h3>Calybrate roadmap</h3>
+        <p class="desc">Four acts, ${chapters.length} chapters and ${t.total} steps — from the landing page to leadership insight. Shared between the Sandbox and Liveroom teams.</p>
         <div class="bar"><i style="width:${t.pct * 100}%"></i></div>
         <div class="stat-row"><div class="stat done"><b>${t.done}</b><span>done</span></div><div class="stat doing"><b>${t.doing}</b><span>in progress</span></div><div class="stat blocked"><b>${t.blocked}</b><span>blocked</span></div><div class="stat"><b>${t.total - t.done - t.doing - t.blocked}</b><span>to do</span></div></div>
         <div class="p-actions"><button class="btn primary" data-a="story">▶ Play the story</button>
-        <div class="row"><button class="btn ghost" data-a="expand-all">Expand all</button><button class="btn ghost" data-a="collapse-all">Collapse all</button></div></div>
-        <div class="lbl">Chapters</div><div class="list">${chNodes.map((c) => chLi(c)).join('')}</div>
+        <div class="row"><button class="btn ghost" data-a="expand-all">Open everything</button><button class="btn ghost" data-a="collapse-all">Close all</button></div></div>
+        ${openIssuesHtml(n)}
+        <div class="lbl">Acts</div><div class="list">${actNodes.map((a) => actLi(a)).join('')}</div>
+        ${discussionHtml(n, keep)}
+        ${refsHtml(n, keepCap)}
         <div class="lbl">More</div>
         <div class="p-actions" style="margin-top:0"><div class="row"><button class="btn ghost" id="btn-activity">Activity</button><button class="btn ghost" id="btn-sketches">All sketches</button></div>
-        <div class="row"><button class="btn ghost" id="m-export">Export</button><button class="btn ghost" id="m-import">Import</button><button class="btn ghost danger-t" id="m-reset">Reset</button></div></div>`;
+        <div class="row"><button class="btn ghost" data-a="tour">Replay intro</button><button class="btn ghost" id="m-export">Export</button>${store.mode === 'demo' ? '<button class="btn ghost" id="m-import">Import</button>' : ''}</div>
+        <div class="row">${store.mode === 'demo' ? '<button class="btn ghost danger-t" id="m-reset">Reset demo</button>' : ''}<button class="btn ghost" data-a="signout">Sign out</button></div></div>`;
     } else if (n.type === 'act') {
       const a = acts[n.ai], pr = prog(n);
       h += `<div class="p-top"><span class="chip id" style="background:${a.color};color:#0b0612">Act ${a.n}</span></div><h3>${esc(a.name)}</h3>
         <p class="desc">${n.children.length} chapters · ${pr.total} steps · ${pr.done} done.</p><div class="bar"><i style="width:${pr.pct * 100}%"></i></div>
-        <div class="lbl" style="margin-top:14px">Chapters</div><div class="list">${n.children.map((c) => chLi(c)).join('')}</div>`;
+        <div class="lbl" style="margin-top:14px">Chapters</div><div class="list">${n.children.map((c) => chLi(c)).join('')}</div>
+        ${openIssuesHtml(n)}${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
     } else if (n.type === 'chapter') {
       const a = acts[n.ai], pr = prog(n), ch = n.ch, ref = ch.steps[0] && (ch.steps[0].ref || ch.steps[0].hub) ? ch.steps[0] : null;
       const from = ref && ref.g ? ref.g.map((g) => N[g] ? `<button class="chip btnlike" data-sel="${esc(g)}">↩ ${esc(g)} · ${esc(N[g].s.t)}</button>` : '').join('') : '';
@@ -419,8 +545,10 @@
         <div class="bar"><i style="width:${pr.done / pr.total * 100}%"></i><i class="doing" style="width:${pr.doing / pr.total * 100}%"></i><i class="blocked" style="width:${pr.blocked / pr.total * 100}%"></i></div>
         <div class="post-row" style="margin:6px 0 12px"><span>${pr.done} of ${pr.total} steps done</span></div>
         <div class="p-actions"><button class="btn primary" data-a="story-here">▶ Walk through this chapter</button>
-        <div class="row"><button class="btn ghost" data-a="toggle-sel">${n.collapsed ? 'Expand steps' : 'Collapse steps'}</button><button class="btn ghost" data-a="sketch">View sketch</button></div></div>
-        <div class="lbl">Steps</div><div class="list">${stepsOf(n).map((s) => `<button class="li" data-sel="${esc(s.id)}"><i class="d st-${status(s.id)}"></i><span class="ln">${esc(s.id)}</span>${esc(s.s.t)}</button>`).join('')}</div>`;
+        <div class="row"><button class="btn ghost" data-a="toggle-sel">${n.collapsed ? 'Open steps' : 'Close steps'}</button><button class="btn ghost" data-a="sketch">View sketch</button></div></div>
+        ${openIssuesHtml(n)}
+        <div class="lbl">Steps</div><div class="list">${n.steps.map((s) => stepLi(s)).join('')}</div>
+        ${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
     } else {
       const s = n.s, ch = chapters[n.ci], st = status(s.id);
       const jumps = (s.g || []).map((g) => N[g] ? `<button class="chip btnlike" data-sel="${esc(g)}">↪ ${esc(g)} · ${esc(N[g].s.t)}</button>` : '').join('');
@@ -437,26 +565,90 @@
           <button class="btn good" data-a="done">${nx ? (st === 'done' ? '✓ Done — go to next step' : '✓ Mark complete & next step') : '✓ Mark complete'}</button>
           <div class="row"><button class="btn ghost" data-a="upto">Done up to here</button><button class="btn ghost" data-a="sketch">View sketch</button></div>
         </div>
-        <div class="lbl">Comments & updates</div>
-        <div class="thread">${threadFor(s.id) || '<div class="empty">Nothing yet — add the latest on this step below.</div>'}</div>
-        <textarea id="c-text" placeholder="What's happened so far? Questions, blockers, decisions…">${esc(keep)}</textarea>
-        <div class="post-row"><span>Ctrl + Enter to post</span><button class="btn primary" data-a="post">Post update</button></div>`;
+        ${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
     }
     p.innerHTML = h; p.scrollTop = scroll;
-    renderToolbar();
+    hydrateThumbs(); renderToolbar();
   }
-  function chLi(c) {
-    const pr = prog(c), st = nState(c);
-    return `<button class="li" data-sel="${c.id}"><i class="d st-${st}"></i><span class="ln">Ch ${c.ch.n}</span>${esc(c.ch.name)}<small>${pr.done}/${pr.total}</small></button>`;
+  function actLi(a) {
+    const pr = prog(a), sc = stats(a);
+    return `<button class="li" data-sel="${a.id}"><i class="d st-${nState(a)}" style="outline:2px solid ${acts[a.ai].color}33"></i><span class="ln" style="color:${acts[a.ai].color}">Act ${acts[a.ai].n}</span><span class="ellip">${esc(acts[a.ai].name)}</span><small>${sc.open ? `<b class="iss">⚠ ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
   }
-  function threadFor(id) {
-    const items = [];
-    (S.comments[id] || []).forEach((c) => items.push({ t: 'c', ...c }));
-    S.log.filter((l) => l.id === id && l.type === 'status').forEach((l) => items.push({ t: 's', ...l }));
-    items.sort((a, b) => a.ts - b.ts);
-    return items.map((m) => m.t === 'c'
-      ? `<div class="msg"><header>${ago(m.ts)}</header><p>${esc(m.text)}</p></div>`
-      : `<div class="sys" style="--c:${STCOL[m.to]}"><span>Status set to <b>${ST[m.to]}</b> · ${ago(m.ts)}</span></div>`).join('');
+  function stepLi(s) {
+    const sc = stats(s);
+    return `<button class="li" data-sel="${esc(s.id)}"><i class="d st-${status(s.id)}"></i><span class="ln">${esc(s.id)}</span><span class="ellip">${esc(s.s.t)}</span>${sc.c ? `<small>💬 ${sc.c}${sc.open ? ` <b class="iss">⚠</b>` : ''}</small>` : ''}</button>`;
+  }
+
+  /* ---------- reference images ---------- */
+  const urlCache = {};
+  async function urlFor(a) {
+    if (urlCache[a.id] && urlCache[a.id].exp > Date.now()) return urlCache[a.id].url;
+    const url = await store.attachmentUrl(a);
+    urlCache[a.id] = { url, exp: Date.now() + 50 * 60 * 1000 };
+    return url;
+  }
+  function hydrateThumbs() {
+    $$('.refgrid img[data-aid]').forEach(async (img) => {
+      const a = S.attachments.find((x) => x.id === img.dataset.aid); if (!a) return;
+      try { img.src = await urlFor(a); } catch (e) { img.alt = 'Image unavailable'; }
+    });
+  }
+  function downscale(file, max, q) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob((b) => { URL.revokeObjectURL(url); b ? res(b) : rej(new Error('Could not process that image')); }, 'image/jpeg', q);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('That file is not a readable image')); };
+      img.src = url;
+    });
+  }
+  async function doUpload() {
+    if (!pendingFile || !sel) return;
+    const btn = $('#ref-up'); if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+    const cap = (($('#ref-cap') || {}).value || '').trim(), nodeId = sel.id, file = pendingFile;
+    await guard(async () => {
+      const blob = await downscale(file, store.mode === 'demo' ? 1100 : 1800, store.mode === 'demo' ? 0.78 : 0.88);
+      await store.addAttachment(profile, { nodeId, blob, caption: cap });
+      await pushEvent({ nodeId, type: 'upload' });
+      pendingFile = null; await reload(); toast('Image uploaded');
+    });
+    if (sel && $('#ref-up')) renderPanel();
+  }
+
+  /* viewer: image + its own comment thread */
+  let vw = null;
+  function openViewer(attId) {
+    const a = S.attachments.find((x) => x.id === attId); if (!a) return;
+    vw = { nodeId: a.nodeId, id: a.id };
+    $('#viewer').hidden = false; renderViewer();
+  }
+  function closeViewer() { vw = null; $('#viewer').hidden = true; }
+  async function renderViewer() {
+    if (!vw) return;
+    const list = nodeAtts(vw.nodeId), a = list.find((x) => x.id === vw.id);
+    if (!a) { closeViewer(); return; }
+    const i = list.indexOf(a), side = $('#vw-side');
+    const keep = ($('#vw-text') || {}).value || '';
+    const comments = S.comments.filter((c) => c.attachmentId === a.id);
+    const mine = profile && a.uploaderId === profile.id;
+    $('#viewer .vw-nav.prev').style.display = $('#viewer .vw-nav.next').style.display = list.length > 1 ? '' : 'none';
+    side.innerHTML = `<header><div><small>${esc(nodeName(a.nodeId))}</small><h3>${esc(a.caption || 'Reference image')}</h3><div class="vm">${teamBadge(a.team)} <b>${esc(a.name)}</b> · ${ago(a.ts)}${list.length > 1 ? ` · ${i + 1} of ${list.length}` : ''}</div></div>
+      <button class="btn ghost icon-only" data-a="vw-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <div class="lbl">Comments on this image${comments.length ? ` · ${comments.length}` : ''}</div>
+      <div class="thread">${comments.map(msgHtml).join('') || '<div class="empty">No comments yet. Tell the other team what you think of this image.</div>'}</div>
+      <textarea id="vw-text" placeholder="Comment on this image…">${esc(keep)}</textarea>
+      <div class="post-row"><span>Ctrl + Enter to send</span><button class="btn primary" data-a="vw-post">Send</button></div>
+      <div class="p-actions"><button class="btn ghost" data-a="vw-goto">Go to this section</button>${mine ? '<button class="btn ghost danger-t" data-a="vw-del">Delete image</button>' : ''}</div>`;
+    const img = $('#vw-img');
+    try { const u = await urlFor(a); if (img.dataset.aid !== a.id) { img.dataset.aid = a.id; img.src = u; } } catch (e) { img.alt = 'Image unavailable'; }
+  }
+  async function vwStep(d) {
+    const list = nodeAtts(vw.nodeId), i = list.findIndex((x) => x.id === vw.id);
+    vw.id = list[(i + d + list.length) % list.length].id; renderViewer();
   }
 
   /* ============================================================
@@ -488,15 +680,14 @@
         <span class="hide-m">${view}<span class="sep"></span></span><button class="btn ghost" data-a="exit-story">Exit</button>`;
     } else {
       tb.innerHTML = `${view}<span class="sep"></span>
-        <button class="btn ghost hide-m" data-a="expand-all">Expand all</button><button class="btn ghost hide-m" data-a="collapse-all">Collapse all</button><span class="sep"></span>
+        <button class="btn ghost hide-m" data-a="expand-all">Open all</button><button class="btn ghost hide-m" data-a="collapse-all">Close all</button><span class="sep"></span>
         <button class="btn primary" data-a="story">${svg('play')}<span>Play the story</span></button>`;
     }
   }
 
-  /* ---------- what gets said at each beat ---------- */
   const WORDS = ['one', 'two', 'three', 'four'];
   function beat(n) {
-    if (n.type === 'root') return { crumb: 'Welcome', title: 'Calybrate', text: `This is Calybrate. Let's walk through the whole product journey, from the landing page all the way to leadership insight. There are ${chapters.length} chapters and ${order.length} steps, grouped into four acts.` };
+    if (n.type === 'root') return { crumb: 'Welcome', title: 'Calybrate', text: `This is the Calybrate roadmap. Let's walk through the whole product journey, from the landing page all the way to leadership insight. There are ${chapters.length} chapters and ${order.length} steps, grouped into four acts.` };
     if (n.type === 'act') { const a = acts[n.ai]; return { crumb: `Act ${a.n}`, title: a.name, text: `Act ${WORDS[n.ai]}: ${a.name}. It covers ${n.children.length === 1 ? 'one chapter' : n.children.length + ' chapters'}.` }; }
     if (n.type === 'chapter') { const ch = n.ch; return { crumb: `Act ${acts[ch.act].n} · Chapter ${ch.n}`, title: ch.name, text: `Chapter ${ch.n}: ${ch.name.replace('·', ':')}. ${ch.blurb}` }; }
     const s = n.s, ch = chapters[n.ci];
@@ -505,7 +696,6 @@
     return { crumb: `Chapter ${ch.n} · ${ch.short}`, title: s.t, text: `${pre}${s.t}. ${s.d || ''}${next}`, id: s.id };
   }
 
-  /* ---------- voice ---------- */
   function pickVoice() {
     const vs = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
     if (!vs.length) return null;
@@ -520,7 +710,6 @@
   }
   if (CAN_SPEAK) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
 
-  /* ---------- playback ---------- */
   function clearTimers() {
     clearTimeout(story.timer); clearTimeout(story.fb); story.token++;
     if (CAN_SPEAK) speechSynthesis.cancel();
@@ -550,13 +739,12 @@
   }
   function storyCam(n) {
     const a = area(), res = mobile ? 230 : 300, minFit = mobile ? 0.8 : 0.55;
-    const group = n.type === 'step' ? (() => { const cn = chNodes[n.ci]; return [cn, ...descendants(cn)]; })() : all;
+    const group = n.type === 'step' ? (() => { const cn = chNodes[n.ci]; return [cn, ...cn.desc]; })() : all;
     const [x1, y1, x2, y2] = boundsOf(group);
     const k = Math.min((a.w - 120) / (x2 - x1), (a.h - res) / (y2 - y1), 1);
     if (n.type === 'root' || k >= minFit) fitRect(x1, y1, x2, y2, n.type === 'root' ? 1 : 0.95, 60, res);
     else { cam.k = 0.85; centerOn(n, 0.85, res / 2 - 40); }
   }
-
   function gotoBeat(i) {
     i = Math.max(0, Math.min(all.length - 1, i));
     const n = all[i];
@@ -569,28 +757,27 @@
     apply(); if (panel) renderPanel();
     storyCam(n); caption(n); renderToolbar(); schedule(n); drawMinimap();
   }
-  function startStory(i0) {
-    closeDrawer(); story.playing = true; story.done = false; gotoBeat(i0 || 0);
-  }
+  function startStory(i0) { closeDrawer(); story.playing = true; story.done = false; gotoBeat(i0 || 0); }
   function togglePlay() {
     if (story.done) { startStory(0); return; }
     story.playing = !story.playing; gotoBeat(story.i);
   }
   function finishStory() {
     clearTimers(); story.playing = false; story.done = true; story.i = all.length;
-    chNodes.forEach((c) => { c.collapsed = true; }); sel = null; document.body.classList.remove('panel-open');
-    apply(); fitRect(...boundsOf(all), 0.95, 60, innerWidth <= 800 ? 230 : 300); renderToolbar();
-    const c = $('#caption'), text = `That's the full Calybrate journey — ${chapters.length} chapters and ${order.length} steps. Now it's your turn: open any chapter, mark what's done, and leave a comment.`;
+    chNodes.forEach((c) => { c.collapsed = true; }); actNodes.forEach((a) => { a.collapsed = false; }); sel = null; document.body.classList.remove('panel-open');
+    apply(); fitRect(...boundsOf(all), 0.95, 60, mobile ? 230 : 300); renderToolbar();
+    const c = $('#caption'), text = `That's the full Calybrate roadmap — ${chapters.length} chapters and ${order.length} steps. Now it's your turn: open any part, update its status, and talk it through with the other team.`;
     c.classList.remove('on');
-    setTimeout(() => { c.innerHTML = `<div class="cap-top"><small>The end</small></div><h4>That's the journey</h4><p>${esc(text)}</p><div class="cap-bar"><i style="width:100%"></i></div>`; c.classList.add('on'); }, 280);
+    setTimeout(() => { c.innerHTML = `<div class="cap-top"><small>The end</small></div><h4>That's the roadmap</h4><p>${esc(text)}</p><div class="cap-bar"><i style="width:100%"></i></div>`; c.classList.add('on'); }, 280);
     const tok = story.token;
     if (story.voice && CAN_SPEAK) setTimeout(() => { if (tok === story.token && story.done) speak(text, () => {}); }, 900);
     confetti(innerWidth / 2, innerHeight / 3);
   }
+  function resetAccordion() { [...actNodes, ...chNodes].forEach((x) => { x.collapsed = true; }); }
   function exitStory(quiet) {
     clearTimers(); story.on = false; story.playing = false; story.done = false;
     document.body.classList.remove('story'); $('#caption').classList.remove('on');
-    chNodes.forEach((c) => { c.collapsed = true; });
+    resetAccordion();
     if (!quiet) { sel = null; document.body.classList.remove('panel-open'); apply(); fitAll(); renderToolbar(); } else apply();
   }
   function nextStep() {
@@ -601,62 +788,31 @@
   }
 
   /* ============================================================
-     Search
-     ============================================================ */
-  const q = $('#q'), results = $('#results');
-  let hits = [], hi = 0;
-  function runSearch() {
-    const v = q.value.trim().toLowerCase();
-    if (!v) { results.hidden = true; return; }
-    hits = [...chNodes.filter(Boolean), ...order].filter((n) => {
-      const t = n.type === 'chapter' ? n.ch.name : n.s.t + ' ' + n.s.id + ' ' + (n.s.d || '');
-      return (t + ' ' + (n.type === 'step' ? chapters[n.ci].name : '')).toLowerCase().includes(v);
-    }).slice(0, 9);
-    hi = 0; drawResults();
-  }
-  function drawResults() {
-    results.hidden = false;
-    results.innerHTML = hits.length ? hits.map((n, i) => n.type === 'chapter'
-      ? `<button data-sel="${n.id}" class="${i === hi ? 'on' : ''}"><span class="rid">Ch ${n.ch.n}</span><span>${esc(n.ch.name)}<small>Chapter · ${prog(n).total} steps</small></span></button>`
-      : `<button data-sel="${esc(n.id)}" class="${i === hi ? 'on' : ''}"><span class="rid">${esc(n.s.id)}</span><span>${esc(n.s.t)}<small>Chapter ${chapters[n.ci].n} · ${esc(chapters[n.ci].name)}</small></span></button>`).join('')
-      : '<div class="none">No steps match that.</div>';
-  }
-  function pick(n) {
-    results.hidden = true; q.blur();
-    select(n);
-    n.el.classList.add('match'); setTimeout(() => n.el.classList.remove('match'), 2200);
-  }
-  q.addEventListener('input', runSearch);
-  q.addEventListener('focus', runSearch);
-  q.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hits.length - 1, hi + 1); drawResults(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(0, hi - 1); drawResults(); }
-    else if (e.key === 'Enter' && hits[hi]) { e.preventDefault(); pick(hits[hi]); }
-    else if (e.key === 'Escape') { results.hidden = true; q.blur(); }
-  });
-  results.addEventListener('click', (e) => { const b = e.target.closest('[data-sel]'); if (b) { e.stopPropagation(); pick(N[b.dataset.sel]); } });
-  document.addEventListener('click', (e) => { if (!e.target.closest('.search')) results.hidden = true; });
-
-  /* ============================================================
-     Activity drawer, lightbox, toast, confetti
+     Activity drawer, sketches lightbox, toast, confetti
      ============================================================ */
   let dFilter = 'all';
-  function evHtml(e) {
-    const n = N[e.id], name = n ? n.s.t : e.id;
-    let line;
-    if (e.type === 'comment') line = `Comment on <b>${esc(e.id)} · ${esc(name)}</b><q>“${esc(e.text.slice(0, 120))}”</q>`;
-    else if (e.type === 'bulk') line = `<b>${e.n} steps</b> marked done up to <b>${esc(e.id)} · ${esc(name)}</b>`;
-    else line = `<b>${esc(e.id)} · ${esc(name)}</b> set to <b>${ST[e.to]}</b>`;
-    return `<button class="ev" data-sel="${esc(e.id)}"><div class="av">${e.type === 'comment' ? '💬' : e.to === 'done' || e.type === 'bulk' ? '✓' : '•'}</div><div>${line}<small>${ago(e.ts)}</small></div></button>`;
+  function feedItem(it) {
+    if (it.t === 'comment') {
+      const c = it.c;
+      return `<button class="ev" data-sel="${esc(c.nodeId)}"><div class="av ${c.kind === 'issue' ? 'bad' : ''}">${c.kind === 'issue' ? '⚠' : '💬'}</div><div>${teamBadge(c.team)} <b>${esc(c.name)}</b> ${c.kind === 'issue' ? (c.resolved ? 'resolved an issue on' : 'raised an issue on') : 'commented on'} <b>${esc(nodeName(c.nodeId))}</b><q>“${esc(c.body.slice(0, 120))}”</q><small>${ago(c.ts)}</small></div></button>`;
+    }
+    const e = it.e; let line;
+    if (e.type === 'upload') line = `uploaded a reference image to <b>${esc(nodeName(e.nodeId))}</b>`;
+    else if (e.type === 'bulk') line = `marked <b>${e.n} steps</b> done up to <b>${esc(nodeName(e.nodeId))}</b>`;
+    else line = `set <b>${esc(nodeName(e.nodeId))}</b> to <b>${ST[e.to] || e.to}</b>`;
+    return `<button class="ev" data-sel="${esc(e.nodeId)}"><div class="av">${e.type === 'upload' ? '🖼' : e.to === 'done' || e.type === 'bulk' ? '✓' : '•'}</div><div>${teamBadge(e.team)} <b>${esc(e.name)}</b> ${line}<small>${ago(e.ts)}</small></div></button>`;
   }
   function renderDrawer() {
     const t = prog(root), f = firstOpen();
-    let html = `<div class="d-sum"><b>${t.done}</b> of <b>${t.total}</b> steps done · <b>${t.doing}</b> in progress · <b>${t.blocked}</b> blocked.<br>${f ? `Next up: <b>${esc(f.id)} · ${esc(f.s.t)}</b> in chapter ${chapters[f.ci].n}.` : 'Everything is complete.'}</div>`;
-    const items = S.log.slice().reverse().filter((e) => dFilter === 'all' || (dFilter === 'comment' ? e.type === 'comment' : e.type !== 'comment'));
-    $('#d-body').innerHTML = html + (items.length ? items.map(evHtml).join('') : '<div class="empty">Nothing here yet — updates you make show up here.</div>');
+    const open = S.comments.filter((c) => c.kind === 'issue' && !c.resolved).length;
+    const html = `<div class="d-sum"><b>${t.done}</b> of <b>${t.total}</b> steps done · <b>${t.doing}</b> in progress · <b>${t.blocked}</b> blocked${open ? ` · <b class="iss">⚠ ${open} open issue${open > 1 ? 's' : ''}</b>` : ''}.<br>${f ? `Next up: <b>${esc(f.id)} · ${esc(f.s.t)}</b> in chapter ${chapters[f.ci].n}.` : 'Everything is complete.'}</div>`;
+    let items = [...S.events.map((e) => ({ t: 'e', ts: e.ts, e })), ...S.comments.filter((c) => !c.attachmentId || true).map((c) => ({ t: 'comment', ts: c.ts, c }))];
+    items = items.filter((it) => dFilter === 'all' || (dFilter === 'comment' && it.t === 'comment' && it.c.kind === 'comment') || (dFilter === 'issue' && it.t === 'comment' && it.c.kind === 'issue') || (dFilter === 'status' && it.t === 'e'));
+    items.sort((a, b) => b.ts - a.ts);
+    $('#d-body').innerHTML = html + (items.length ? items.slice(0, 200).map(feedItem).join('') : '<div class="empty">Nothing here yet — updates from both teams show up here.</div>');
   }
   const openDrawer = () => { renderDrawer(); $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false'); $('#scrim').hidden = false; };
-  const closeDrawer = () => { $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true'); $('#scrim').hidden = true; };
+  function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true'); $('#scrim').hidden = true; }
 
   const LB = { list: [], i: 0, rot: {}, title: '' };
   function openLightbox(list, title) { LB.list = list; LB.i = 0; LB.title = title; $('#lightbox').hidden = false; showLb(); }
@@ -668,7 +824,7 @@
   }
 
   let toastT;
-  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2400); }
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200); }
   function confetti(x, y) {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const cols = ['#c084fc', '#a855f7', '#ceb7dd', '#e879f9', '#818cf8', '#34d399'];
@@ -681,39 +837,64 @@
   }
 
   /* ============================================================
+     Intro tour (first visit)
+     ============================================================ */
+  const TOUR_KEY = 'calybrate-tour-v2';
+  const TOUR = [
+    { art: `<svg viewBox="0 0 220 120"><g fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M42 60C70 60 70 22 100 22M42 60C70 60 70 46 100 46M42 60C70 60 70 74 100 74M42 60C70 60 70 98 100 98" stroke="#c084fc"/><path d="M122 22h40M122 46h40M122 74h40M122 98h40" stroke="#6f6390"/></g><rect x="6" y="46" width="44" height="28" rx="8" fill="#ceb7dd"/><g fill="#a855f7"><rect x="100" y="12" width="26" height="20" rx="10"/><rect x="100" y="36" width="26" height="20" rx="10"/><rect x="100" y="64" width="26" height="20" rx="10"/><rect x="100" y="88" width="26" height="20" rx="10"/></g><g fill="#2a1d44" stroke="#8b5cf6"><rect x="160" y="14" width="46" height="16" rx="5"/><rect x="160" y="38" width="46" height="16" rx="5"/><rect x="160" y="66" width="46" height="16" rx="5"/><rect x="160" y="90" width="46" height="16" rx="5"/></g></svg>`,
+      title: 'This is the Calybrate roadmap', text: () => `Every screen, role and report of the product on one map — ${chapters.length} chapters and ${order.length} steps, drawn from the original sketches. It's the shared plan between the Sandbox and Liveroom teams.` },
+    { art: `<svg viewBox="0 0 220 120"><g stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M40 60C64 60 64 24 88 24M40 60C64 60 64 48 88 48M40 60C64 60 64 72 88 72M40 60C64 60 64 96 88 96" stroke="#c084fc"/></g><rect x="6" y="46" width="38" height="28" rx="8" fill="#ceb7dd"/><g><rect x="88" y="14" width="50" height="20" rx="10" fill="#d8b4fe"/><rect x="88" y="38" width="50" height="20" rx="10" fill="#a855f7"/><rect x="88" y="62" width="50" height="20" rx="10" fill="#e879f9"/><rect x="88" y="86" width="50" height="20" rx="10" fill="#818cf8"/></g><g stroke="#a855f7" stroke-width="2" fill="none"><path d="M138 48c14 0 14-12 28-12M138 48c14 0 14 0 28 0M138 48c14 0 14 12 28 12"/></g><g fill="#2a1d44" stroke="#8b5cf6"><rect x="166" y="28" width="44" height="14" rx="5"/><rect x="166" y="41" width="44" height="14" rx="5"/><rect x="166" y="54" width="44" height="14" rx="5"/></g></svg>`,
+      title: 'Open one part at a time', text: () => 'Start with the four Acts. Click an Act to open its chapters, then a chapter to open its steps. Only the part you pick stays open, so the map stays calm. Prefer a guided tour? Hit "Play the story".' },
+    { art: `<svg viewBox="0 0 220 120"><rect x="16" y="14" width="120" height="38" rx="12" fill="#2a1d44" stroke="#f472b6"/><rect x="28" y="26" width="70" height="6" rx="3" fill="#f472b6"/><rect x="28" y="38" width="46" height="6" rx="3" fill="#6f6390"/><rect x="84" y="62" width="120" height="38" rx="12" fill="#2a1d44" stroke="#38bdf8"/><rect x="96" y="74" width="76" height="6" rx="3" fill="#38bdf8"/><rect x="96" y="86" width="40" height="6" rx="3" fill="#6f6390"/><circle cx="196" cy="22" r="11" fill="#fb7185"/><path d="M196 17v6M196 27h.01" stroke="#1d0309" stroke-width="2.4" stroke-linecap="round"/></svg>`,
+      title: 'Talk about any section', text: () => 'Every act, chapter and step has its own discussion. Send a comment, or raise an Issue — issues stay flagged until someone marks them resolved. Both teams see everything live.' },
+    { art: `<svg viewBox="0 0 220 120"><rect x="40" y="12" width="140" height="96" rx="12" fill="#2a1d44" stroke="#8b5cf6"/><rect x="52" y="24" width="116" height="14" rx="4" fill="#3a2a5c"/><rect x="52" y="44" width="52" height="52" rx="6" fill="#3a2a5c"/><rect x="110" y="44" width="58" height="22" rx="6" fill="#4a3675"/><rect x="110" y="72" width="58" height="24" rx="6" fill="#3a2a5c"/><circle cx="186" cy="94" r="16" fill="#a855f7"/><path d="M186 87v14M179 94h14" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>`,
+      title: 'Share reference images', text: () => 'Sandbox can upload page-structure or reference images on any section. Liveroom can open them and comment right on the image — everything stays attached to the part of the roadmap it belongs to.' }
+  ];
+  let tourI = 0;
+  function showTour() { tourI = 0; $('#tour').hidden = false; renderTour(); }
+  function renderTour() {
+    const t = TOUR[tourI], last = tourI === TOUR.length - 1;
+    $('#tour').innerHTML = `<div class="tour-card" key="${tourI}">
+      <div class="tour-art">${t.art}</div>
+      <small>${tourI + 1} of ${TOUR.length}${profile ? ` · signed in as ${esc(TEAMS[profile.team])}` : ''}</small>
+      <h2>${esc(t.title)}</h2><p>${esc(t.text())}</p>
+      <div class="tour-dots">${TOUR.map((_, i) => `<i class="${i === tourI ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="tour-actions"><button class="btn ghost" data-a="tour-skip">${last ? 'Close' : 'Skip'}</button>${last ? '<button class="btn ghost" data-a="tour-play">▶ Play the story</button>' : ''}<button class="btn primary" data-a="tour-next">${last ? 'Start exploring' : 'Next'}</button></div></div>`;
+  }
+  function endTour() {
+    $('#tour').hidden = true;
+    try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) { /* ignore */ }
+  }
+
+  /* ============================================================
      Events
      ============================================================ */
-  function toggleNode(n) {
-    if (story.on) return;
-    n.collapsed = !n.collapsed; apply();
-    if (!n.collapsed && n.type !== 'step') { if (mobile && n.type === 'chapter') { const a = area(); cam.k = 0.68; cam.x = a.w * 0.05 - n.left * cam.k; cam.y = a.h / 2 - (n.top + n.h / 2) * cam.k; applyCam(); } else fitNode(n, 1); }
-  }
-  function postComment() {
+  async function postComment() {
     const ta = $('#c-text'), v = ta.value.trim();
-    if (!v) { ta.focus(); return; }
-    addComment(sel.id, v); ta.value = ''; renderPanel(); refresh(); toast('Update posted');
+    if (!v || !sel) { ta.focus(); return; }
+    const nodeId = sel.id, kind = composeKind;
+    const btn = $('[data-a="post"]'); if (btn) btn.disabled = true;
+    await guard(async () => { await store.addComment(profile, { nodeId, body: v, kind }); ta.value = ''; composeKind = 'comment'; await reload(); toast(kind === 'issue' ? 'Issue raised' : 'Message sent'); });
+    if (sel && $('[data-a="post"]')) renderPanel();
+  }
+  async function postViewerComment() {
+    const ta = $('#vw-text'), v = ta.value.trim();
+    if (!v || !vw) { ta.focus(); return; }
+    await guard(async () => { await store.addComment(profile, { nodeId: vw.nodeId, attachmentId: vw.id, body: v, kind: 'comment' }); ta.value = ''; await reload(); });
   }
   function afterStatusChange() { refresh(); drawMinimap(); renderPanel(); }
 
-  world.addEventListener('click', (e) => {
-    const el = e.target.closest('.node'); if (!el) return;
-    const n = N[el.dataset.id];
-    if (e.target.closest('.hdl')) { e.stopPropagation(); toggleNode(n); return; }
-    select(n);
-  });
-  world.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('node')) { e.preventDefault(); select(N[e.target.dataset.id]); } });
-
   document.addEventListener('click', (e) => {
     const t = e.target; let el;
-    if ((el = t.closest('[data-sel]')) && !t.closest('#results')) { closeDrawer(); select(N[el.dataset.sel]); return; }
+    if ((el = t.closest('[data-sel]'))) { closeDrawer(); if (vw) closeViewer(); const n = N[el.dataset.sel]; if (n) select(n); return; }
     const a = (el = t.closest('[data-a]')) ? el.dataset.a : (t.closest('button[id], a[id]') || {}).id;
     switch (a) {
       case 'close': deselect(); break;
       case 'fit': fitAll(); break;
       case 'zin': zoomAt(1.25); break;
       case 'zout': zoomAt(0.8); break;
-      case 'expand-all': if (story.on) exitStory(true); chNodes.forEach((c) => { c.collapsed = false; }); apply(); fitAll(); break;
-      case 'collapse-all': if (story.on) exitStory(true); chNodes.forEach((c) => { c.collapsed = true; }); apply(); fitAll(); break;
+      case 'expand-all': if (story.on) exitStory(true); [...actNodes, ...chNodes].forEach((c) => { c.collapsed = false; }); apply(); fitAll(); break;
+      case 'collapse-all': if (story.on) exitStory(true); resetAccordion(); apply(); fitAll(); break;
       case 'story': startStory(0); break;
       case 'story-here': startStory(sel.si); break;
       case 'replay': startStory(0); break;
@@ -729,51 +910,76 @@
       case 'toggle-sel': toggleNode(sel); renderPanel(); break;
       case 'sketch': openLightbox(chapters[sel.ci].sketch, chapters[sel.ci].name); break;
       case 'done': {
-        setStatus(sel.id, 'done'); const r = el.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top);
-        const chDone = prog(chNodes[sel.ci]).done === prog(chNodes[sel.ci]).total;
-        if (chDone) toast(`Chapter ${chapters[sel.ci].n} complete — ${chapters[sel.ci].name} ✓`);
+        guard(() => setStatus(sel.id, 'done')); const r = el.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top);
+        const chn = chNodes[sel.ci], pc = prog(chn);
+        if (pc.done === pc.total) toast(`Chapter ${chapters[sel.ci].n} complete — ${chapters[sel.ci].name} ✓`);
         refresh(); nextStep(); break;
       }
       case 'upto': {
-        let k = 0;
-        order.filter((x) => x.ci === sel.ci && x.oi <= sel.oi).forEach((x) => { if (status(x.id) !== 'done') { setStatus(x.id, 'done', { silent: true }); k++; } });
-        if (k) { S.log.push({ ts: Date.now(), id: sel.id, type: 'bulk', n: k, to: 'done' }); save(); toast(`${k} step${k > 1 ? 's' : ''} marked done`); }
+        const todo = order.filter((x) => x.ci === sel.ci && x.oi <= sel.oi && status(x.id) !== 'done');
+        if (todo.length) guard(async () => { await Promise.all(todo.map((x) => setStatus(x.id, 'done', { silent: true }))); await pushEvent({ nodeId: sel.id, type: 'bulk', n: todo.length, to: 'done' }); toast(`${todo.length} step${todo.length > 1 ? 's' : ''} marked done`); });
         afterStatusChange(); break;
       }
       case 'post': postComment(); break;
+      case 'resolve': guard(async () => { await store.setResolved(el.dataset.cid, el.dataset.to === '1'); await reload(); }); break;
+      case 'del-comment': if (confirm('Delete this message?')) guard(async () => { await store.deleteComment(el.dataset.cid); await reload(); }); break;
+      case 'upload': doUpload(); break;
+      case 'open-ref': openViewer(el.dataset.aid); break;
+      case 'vw-close': closeViewer(); break;
+      case 'vw-prev': vwStep(-1); break;
+      case 'vw-next': vwStep(1); break;
+      case 'vw-post': postViewerComment(); break;
+      case 'vw-goto': { const n = N[vw.nodeId]; closeViewer(); if (n) select(n); break; }
+      case 'vw-del': if (confirm('Delete this image and its comments?')) { const a2 = S.attachments.find((x) => x.id === vw.id); guard(async () => { await store.deleteAttachment(a2); closeViewer(); await reload(); }); } break;
+      case 'tour': showTour(); break;
+      case 'tour-next': if (tourI < TOUR.length - 1) { tourI++; renderTour(); } else { endTour(); } break;
+      case 'tour-skip': endTour(); break;
+      case 'tour-play': endTour(); startStory(0); break;
+      case 'signout': guard(async () => { await store.logout(); location.reload(); }); break;
+      case 'who': select(root); break;
       case 'btn-activity': openDrawer(); break;
       case 'd-close': closeDrawer(); break;
       case 'btn-sketches': openLightbox(Array.from({ length: D.imageCount }, (_, i) => i + 1), 'All sketches'); break;
-      case 'brand': e.preventDefault(); if (story.on) exitStory(true); chNodes.forEach((c) => { c.collapsed = true; }); apply(); select(root); break;
       case 'lb-close': $('#lightbox').hidden = true; break;
       case 'lb-prev': LB.i = (LB.i + LB.list.length - 1) % LB.list.length; showLb(); break;
       case 'lb-next': LB.i = (LB.i + 1) % LB.list.length; showLb(); break;
       case 'lb-rot': { const n = LB.list[LB.i]; LB.rot[n] = ((LB.rot[n] != null ? LB.rot[n] : (D.rot[n] || 0)) + 90) % 360; showLb(); break; }
-      case 'm-export': exportJson(); closeMenu(); break;
-      case 'm-import': $('#file-import').click(); closeMenu(); break;
-      case 'm-reset': closeMenu(); if (confirm('Reset ALL progress, comments and activity in this browser? This cannot be undone.')) { S = { steps: {}, comments: {}, log: [] }; save(); refresh(); drawMinimap(); renderPanel(); toast('Progress reset'); } break;
+      case 'm-export': exportJson(); break;
+      case 'm-import': $('#file-import').click(); break;
+      case 'm-reset': if (confirm('Reset the demo data (progress, comments, images) in this browser?')) { try { localStorage.removeItem('calybrate-journey-v2'); } catch (err) { /* ignore */ } location.reload(); } break;
       default: break;
     }
-    if ((el = t.closest('#seg button'))) { setStatus(sel.id, el.dataset.s); afterStatusChange(); }
+    if ((el = t.closest('#seg button'))) { guard(() => setStatus(sel.id, el.dataset.s)); afterStatusChange(); }
+    if ((el = t.closest('#kindseg button'))) { composeKind = el.dataset.k; const v = ($('#c-text') || {}).value || ''; renderPanel(); const ta = $('#c-text'); if (ta) { ta.value = v; ta.focus(); } }
     if ((el = t.closest('#d-tabs button'))) { dFilter = el.dataset.f; $$('#d-tabs button').forEach((b) => b.classList.toggle('on', b === el)); renderDrawer(); }
     if (t.id === 'scrim') closeDrawer();
-    if (!t.closest('.menu')) closeMenu();
   });
-  const closeMenu = () => { const m = $('.menu'); if (m) m.removeAttribute('open'); };
+
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'ref-file') {
+      pendingFile = e.target.files[0] || null;
+      $('#ref-name').textContent = pendingFile ? pendingFile.name : 'No file chosen';
+      $('#ref-up').disabled = !pendingFile;
+    }
+  });
 
   document.addEventListener('keydown', (e) => {
     const typing = /^(TEXTAREA|INPUT)$/.test(e.target.tagName);
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'c-text') { postComment(); return; }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (e.target.id === 'c-text') { postComment(); return; }
+      if (e.target.id === 'vw-text') { postViewerComment(); return; }
+    }
     if (e.key === 'Escape') {
-      if (!$('#lightbox').hidden) $('#lightbox').hidden = true;
+      if (!$('#tour').hidden) endTour();
+      else if (vw) closeViewer();
+      else if (!$('#lightbox').hidden) $('#lightbox').hidden = true;
       else if ($('#drawer').classList.contains('open')) closeDrawer();
       else if (story.on) exitStory();
       else if (sel) deselect();
       return;
     }
-    if (typing || !$('#lightbox').hidden) return;
-    if (e.key === '/') { e.preventDefault(); q.focus(); }
-    else if (e.key.toLowerCase() === 'f') fitAll();
+    if (typing || !profile || !$('#lightbox').hidden || vw || !$('#tour').hidden) return;
+    if (e.key.toLowerCase() === 'f') fitAll();
     else if (story.on && e.key === ' ') { e.preventDefault(); togglePlay(); }
     else if (story.on && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) { e.preventDefault(); nextStep(); }
     else if (story.on && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) { e.preventDefault(); if (story.i > 0 && !story.done) gotoBeat(story.i - 1); }
@@ -786,19 +992,22 @@
       try {
         const d = JSON.parse(r.result);
         if (!d || typeof d.steps !== 'object') throw new Error('bad file');
-        S = Object.assign({ steps: {}, comments: {}, log: [] }, d); save(); refresh(); drawMinimap(); renderPanel(); toast('Progress imported');
-      } catch (err) { toast('That file is not a Calybrate progress export'); }
+        const KEY = 'calybrate-journey-v2', cur = JSON.parse(localStorage.getItem(KEY) || '{}');
+        localStorage.setItem(KEY, JSON.stringify({ ...cur, steps: d.steps, comments: d.comments || [], attachments: d.attachments || [], events: d.events || [] }));
+        reload(); toast('Imported');
+      } catch (err) { toast('That file is not a Calybrate export'); }
     };
     r.readAsText(f); e.target.value = '';
   });
   function exportJson() {
-    const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), steps: S.steps, comments: S.comments, events: S.events, attachments: S.attachments.map((a) => ({ ...a, url: undefined })) }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `calybrate-journey-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    a.download = `calybrate-roadmap-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
+
   window.addEventListener('resize', () => {
     const m = innerWidth <= 800;
-    if (m !== mobile) {
+    if (m !== mobile && built) {
       mobile = m; DIM = m ? DIMS.m : DIMS.d; COL = m ? COLS.m : COLS.d; document.body.classList.toggle('mobile', m);
       all.forEach((n) => { n.el.style.width = DIM[n.type][0] + 'px'; n.el.style.height = DIM[n.type][1] + 'px'; });
       apply(); if (story.on && !story.done) storyCam(all[story.i]); else fitAll();
@@ -806,9 +1015,44 @@
     drawMinimap(); updateViewport();
   });
 
-  /* ---------- boot: the full map, straight away ---------- */
-  apply(); renderToolbar();
-  world.classList.add('nogo'); fitAll(1); requestAnimationFrame(() => requestAnimationFrame(() => world.classList.remove('nogo')));
-  setTimeout(() => $('#hint').classList.add('gone'), 9000);
-  $('#stage').addEventListener('pointerdown', () => $('#hint').classList.add('gone'), { once: true });
+  /* ============================================================
+     Sign-in + boot
+     ============================================================ */
+  function showLoginScreen() {
+    const demo = store.mode === 'demo';
+    $('#login').hidden = false;
+    $('#login-demo').hidden = !demo; $('#login-form').hidden = demo;
+    document.body.classList.add('locked');
+  }
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = $('#login-err'), btn = $('#login-go'); err.textContent = ''; btn.disabled = true; btn.textContent = 'Signing in…';
+    try { profile = await store.login({ email: $('#login-email').value.trim(), password: $('#login-pass').value }); await enter(); }
+    catch (ex) { err.textContent = /invalid login/i.test(ex.message || '') ? 'Wrong email or password.' : (ex.message || 'Could not sign in.'); }
+    btn.disabled = false; btn.textContent = 'Sign in';
+  });
+  $('#login-demo').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-team]'); if (!b) return;
+    profile = await store.login({ team: b.dataset.team }); await enter();
+  });
+
+  let entered = false;
+  async function enter() {
+    if (entered) return; entered = true;
+    $('#login').hidden = true; document.body.classList.remove('locked');
+    const who = $('#who'); who.hidden = false; who.className = `who t-${profile.team}`; $('span', who).textContent = new RegExp(TEAMS[profile.team], 'i').test(profile.name) ? profile.name : `${TEAMS[profile.team]} · ${profile.name}`;
+    who.dataset.a = 'who';
+    await reload();
+    buildMap(); apply(); renderToolbar();
+    world.classList.add('nogo'); fitAll(1); requestAnimationFrame(() => requestAnimationFrame(() => world.classList.remove('nogo')));
+    if (mobile) $('#hint').textContent = 'Tap an Act to open it · Drag to move · Pinch to zoom';
+    store.subscribe(() => reload());
+    setTimeout(() => $('#hint').classList.add('gone'), 12000);
+    stage.addEventListener('pointerdown', () => $('#hint').classList.add('gone'), { once: true });
+    let seen = false; try { seen = !!localStorage.getItem(TOUR_KEY); } catch (e) { /* ignore */ }
+    if (!seen) setTimeout(showTour, 600);
+  }
+
+  try { profile = await store.init(); } catch (e) { profile = null; }
+  if (profile) await enter(); else showLoginScreen();
 })();
