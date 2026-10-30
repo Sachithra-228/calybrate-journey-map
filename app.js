@@ -26,11 +26,46 @@
   const ico = (k) => `<svg viewBox="0 0 24 24">${ICON[k] || ICON.screen}</svg>`;
   const CHECK = '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const teamBadge = (t) => `<span class="tb t-${esc(t)}">${esc(TEAMS[t] || t)}</span>`;
+  const TLOGO = { sandbox: 'assets/sandbox.png', liveroom: 'assets/liveroom.png' };
+  const teamBadge = (t) => (TLOGO[t] ? `<span class="tlogo t-${esc(t)}" title="${esc(TEAMS[t])}"><img src="${TLOGO[t]}" alt="${esc(TEAMS[t])}"></span>` : esc(TEAMS[t] || t));
+  const SI = {
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.3A8 8 0 1 1 21 12z"/>',
+    warn: '<path d="M12 3 2 20h20L12 3zM12 10v4M12 17h.01"/>',
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    play: '<path d="m7 4 13 8-13 8z"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 9"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>'
+  };
+  const si = (k) => `<svg class="si" viewBox="0 0 24 24">${SI[k]}</svg>`;
+  const cv = (n) => getComputedStyle(document.body).getPropertyValue(n).trim();
 
   /* ============================================================
      Data: shared store (demo or Supabase) + in-memory copy
      ============================================================ */
+  const THEMES = {
+    calybrate: { label: 'Calybrate', sw: '#a855f7', acts: acts.map((a) => a.color) },
+    sandbox: { label: 'Sandbox', sw: '#f5c518', acts: ['#ffe27a', '#f5c518', '#ffb020', '#d9a406'] },
+    liveroom: { label: 'Liveroom', sw: '#3b82f6', acts: ['#9ec5ff', '#4f8ff7', '#6aa8ff', '#7c9cff'] }
+  };
+  let theme = 'calybrate';
+  function applyTheme(t) {
+    if (!THEMES[t]) t = 'calybrate';
+    theme = t;
+    document.body.classList.remove('theme-calybrate', 'theme-sandbox', 'theme-liveroom');
+    document.body.classList.add('theme-' + t);
+    THEMES[t].acts.forEach((c, i) => { acts[i].color = c; });
+    if (built) {
+      all.forEach((n) => { if (n.ai != null) n.el.style.setProperty('--c', acts[n.ai].color); });
+      refresh(); drawMinimap(); if (sel) renderPanel();
+    }
+  }
+  function chooseTheme() {
+    let pref = null; try { pref = localStorage.getItem('calybrate-theme-pref'); } catch (e) { /* ignore */ }
+    if (pref && THEMES[pref]) return pref;
+    if (profile) return profile.team;
+    if (typeof want !== 'undefined' && want) return want;
+    return 'calybrate';
+  }
   const store = await window.CalybrateStore.create();
   let profile = null;
   let S = { steps: {}, comments: [], attachments: [], events: [] };
@@ -253,7 +288,7 @@
       if (st) el.classList.add('st-' + st);
       el.classList.toggle('sel', sel === n);
       const sc = stats(n);
-      const badge = (sc.c || sc.open ? `<span class="cmt">💬 ${sc.c}${sc.open ? ` <b class="iss">⚠ ${sc.open}</b>` : ''}</span>` : '');
+      const badge = (sc.c || sc.open ? `<span class="cmt">${si('chat')} ${sc.c}${sc.open ? ` <b class="iss">${si('warn')} ${sc.open}</b>` : ''}</span>` : '');
       $('.slot', el).innerHTML = (n.type === 'step' && n.s.g && n.s.g.length ? '<span class="jump">↪</span>' : '') + badge;
       if (n.type === 'step') {
         if (n.edge) n.edge.style.stroke = status(n.id) === 'done' ? 'var(--done)' : actColor(n);
@@ -389,11 +424,11 @@
     all.forEach((n) => {
       if (!n.vis) return;
       const st = stateOf(n);
-      const col = st === 'done' ? '#34d399' : st === 'doing' ? '#fbbf24' : st === 'blocked' ? '#fb7185' : n.type === 'step' ? '#6f6390' : actColor(n);
+      const col = st === 'done' ? '#34d399' : st === 'doing' ? '#fbbf24' : st === 'blocked' ? '#fb7185' : n.type === 'step' ? '#77738a' : actColor(n);
       out += `<rect x="${((n.left - x1) * s + mmT.ox).toFixed(1)}" y="${((n.top - y1) * s + mmT.oy).toFixed(1)}" width="${Math.max(3, n.w * s).toFixed(1)}" height="${Math.max(2.5, n.h * s).toFixed(1)}" rx="1.5" fill="${col}" opacity="${n.type === 'step' ? .85 : 1}"/>`;
     });
     mm.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    mm.innerHTML = out + '<rect id="vp" fill="rgba(192,132,252,.14)" stroke="#c084fc" stroke-width="1.5" rx="3"/>';
+    mm.innerHTML = out + '<rect id="vp" rx="3"/>';
     updateViewport();
   }
   function updateViewport() {
@@ -428,7 +463,8 @@
     if (n.type === 'act' || n.type === 'chapter') n.collapsed = false;
   }
   function cameraFor(n) {
-    if (n.type === 'root' || n.type === 'act') fitAll(1);
+    if (n.type === 'act' && mobile) fitRect(...boundsOf([n, ...n.children]), 0.9, 40);
+    else if (n.type === 'root' || n.type === 'act') fitAll(1);
     else if (n.type === 'chapter') focusChapterView(n);
     else centerOn(n, 0.8);
   }
@@ -457,7 +493,7 @@
     const mine = profile && m.authorId === profile.id;
     return `<div class="msg ${m.kind === 'issue' ? 'issue' : ''} ${m.resolved ? 'resolved' : ''}">
       <header>${teamBadge(m.team)}<b>${esc(m.name)}</b><span>${ago(m.ts)}</span></header>
-      ${m.kind === 'issue' ? `<span class="pill ${m.resolved ? 'ok' : 'bad'}">${m.resolved ? '✓ Issue resolved' : '⚠ Open issue'}</span>` : ''}
+      ${m.kind === 'issue' ? `<span class="pill ${m.resolved ? 'ok' : 'bad'}">${m.resolved ? si('check') + ' Issue resolved' : si('warn') + ' Open issue'}</span>` : ''}
       <p>${esc(m.body)}</p>
       <footer>${m.kind === 'issue' ? `<button class="lnk" data-a="resolve" data-cid="${esc(m.id)}" data-to="${m.resolved ? '0' : '1'}">${m.resolved ? 'Reopen' : 'Mark resolved'}</button>` : ''}${mine ? `<button class="lnk danger-t" data-a="del-comment" data-cid="${esc(m.id)}">Delete</button>` : ''}</footer>
     </div>`;
@@ -474,7 +510,7 @@
     const cnt = nodeComments(n.id).length;
     return `<div class="lbl">Discussion${cnt ? ` · ${cnt}` : ''}</div>
       <div class="thread">${threadHtml(n.id) || '<div class="empty">No messages yet. Start the conversation below.</div>'}</div>
-      <div class="kindseg" id="kindseg"><button data-k="comment" class="${composeKind === 'comment' ? 'on' : ''}">💬 Comment</button><button data-k="issue" class="${composeKind === 'issue' ? 'on bad' : ''}">⚠ Raise an issue</button></div>
+      <div class="kindseg" id="kindseg"><button data-k="comment" class="${composeKind === 'comment' ? 'on' : ''}">${si('chat')} Comment</button><button data-k="issue" class="${composeKind === 'issue' ? 'on bad' : ''}">${si('warn')} Raise an issue</button></div>
       <textarea id="c-text" placeholder="${composeKind === 'issue' ? 'Describe the issue so the other team can act on it…' : 'Write a message to the other team…'}">${esc(keepTxt)}</textarea>
       <div class="post-row"><span>Ctrl + Enter to send</span><button class="btn primary" data-a="post">${composeKind === 'issue' ? 'Raise issue' : 'Send'}</button></div>`;
   }
@@ -483,10 +519,10 @@
     return `<div class="lbl">Reference images${atts.length ? ` · ${atts.length}` : ''}</div>
       ${atts.length ? `<div class="refgrid">${atts.map((a) => {
         const nc = (IDX[n.id] || NONE).comments.filter((c) => c.attachmentId === a.id).length;
-        return `<button class="ref" data-a="open-ref" data-aid="${esc(a.id)}" title="${esc(a.caption || 'Reference image')}"><img data-aid="${esc(a.id)}" alt=""><span class="rc">${teamBadge(a.team)}${nc ? ` 💬 ${nc}` : ''}</span></button>`;
+        return `<button class="ref" data-a="open-ref" data-aid="${esc(a.id)}" title="${esc(a.caption || 'Reference image')}"><img data-aid="${esc(a.id)}" alt=""><span class="rc">${teamBadge(a.team)}${nc ? ` ${si('chat')} ${nc}` : ''}</span></button>`;
       }).join('')}</div>` : '<div class="empty">No images yet. Upload page structures or references so the other team can comment on them.</div>'}
       <div class="uploader">
-        <label class="btn ghost sm" for="ref-file">＋ Choose image</label><input type="file" id="ref-file" accept="image/*" hidden>
+        <label class="btn ghost sm" for="ref-file">${si('plus')} Choose image</label><input type="file" id="ref-file" accept="image/*" hidden>
         <span class="fname" id="ref-name">${pendingFile ? esc(pendingFile.name) : 'No file chosen'}</span>
         <input id="ref-cap" type="text" maxlength="200" placeholder="Caption (optional)" value="${esc(keepCap)}">
         <button class="btn primary sm" data-a="upload" id="ref-up" ${pendingFile ? '' : 'disabled'}>Upload</button>
@@ -500,7 +536,7 @@
   }
   function chLi(c) {
     const pr = prog(c), st = nState(c), sc = stats(c);
-    return `<button class="li" data-sel="${c.id}"><i class="d st-${st}"></i><span class="ln">Ch ${c.ch.n}</span><span class="ellip">${esc(c.ch.name)}</span><small>${sc.open ? `<b class="iss">⚠ ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
+    return `<button class="li" data-sel="${c.id}"><i class="d st-${st}"></i><span class="ln">Ch ${c.ch.n}</span><span class="ellip">${esc(c.ch.name)}</span><small>${sc.open ? `<b class="iss">${si('warn')} ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
   }
 
   function renderPanel() {
@@ -521,7 +557,7 @@
         <p class="desc">Four acts, ${chapters.length} chapters and ${t.total} steps — from the landing page to leadership insight. Shared between the Sandbox and Liveroom teams.</p>
         <div class="bar"><i style="width:${t.pct * 100}%"></i></div>
         <div class="stat-row"><div class="stat done"><b>${t.done}</b><span>done</span></div><div class="stat doing"><b>${t.doing}</b><span>in progress</span></div><div class="stat blocked"><b>${t.blocked}</b><span>blocked</span></div><div class="stat"><b>${t.total - t.done - t.doing - t.blocked}</b><span>to do</span></div></div>
-        <div class="p-actions"><button class="btn primary" data-a="story">▶ Play the story</button>
+        <div class="p-actions"><button class="btn primary" data-a="story">${si('play')} Play the story</button>
         <div class="row"><button class="btn ghost" data-a="expand-all">Open everything</button><button class="btn ghost" data-a="collapse-all">Close all</button></div></div>
         ${openIssuesHtml(n)}
         <div class="lbl">Acts</div><div class="list">${actNodes.map((a) => actLi(a)).join('')}</div>
@@ -530,6 +566,8 @@
         <div class="lbl">Invite links</div>
         <div class="links">${['sandbox', 'liveroom'].map((t) => `<div class="lk"><div>${teamBadge(t)}<code>${esc(teamLink(t))}</code></div><button class="btn ghost sm" data-a="copy-link" data-team="${t}">Copy</button></div>`).join('')}
         ${store.mode === 'demo' ? '<p class="warn">Demo mode: these links open the right login, but data is not shared between devices until the shared backend is connected (see SETUP.md).</p>' : '<p class="hint2">Send each team its own link. They sign in once and the browser remembers them.</p>'}</div>
+        <div class="lbl">Theme</div>
+        <div class="themeseg">${Object.keys(THEMES).map((k) => `<button data-a="theme" data-t="${k}" class="${theme === k ? 'on' : ''}"><i style="--sw:${THEMES[k].sw}"></i>${THEMES[k].label}</button>`).join('')}</div>
         <div class="lbl">More</div>
         <div class="p-actions" style="margin-top:0"><div class="row"><button class="btn ghost" id="btn-activity">Activity</button><button class="btn ghost" id="btn-sketches">All sketches</button></div>
         <div class="row"><button class="btn ghost" data-a="tour">Replay intro</button><button class="btn ghost" id="m-export">Export</button>${store.mode === 'demo' ? '<button class="btn ghost" id="m-import">Import</button>' : ''}</div>
@@ -547,7 +585,7 @@
         ${from ? `<div class="lbl">Picks up from</div><div class="chips">${from}</div>` : ''}
         <div class="bar"><i style="width:${pr.done / pr.total * 100}%"></i><i class="doing" style="width:${pr.doing / pr.total * 100}%"></i><i class="blocked" style="width:${pr.blocked / pr.total * 100}%"></i></div>
         <div class="post-row" style="margin:6px 0 12px"><span>${pr.done} of ${pr.total} steps done</span></div>
-        <div class="p-actions"><button class="btn primary" data-a="story-here">▶ Walk through this chapter</button>
+        <div class="p-actions"><button class="btn primary" data-a="story-here">${si('play')} Walk through this chapter</button>
         <div class="row"><button class="btn ghost" data-a="toggle-sel">${n.collapsed ? 'Open steps' : 'Close steps'}</button><button class="btn ghost" data-a="sketch">View sketch</button></div></div>
         ${openIssuesHtml(n)}
         <div class="lbl">Steps</div><div class="list">${n.steps.map((s) => stepLi(s)).join('')}</div>
@@ -565,7 +603,7 @@
         <div class="lbl">Status</div>
         <div class="seg" id="seg">${Object.keys(ST).map((k) => `<button data-s="${k}" class="${k === st ? 'on' : ''}">${ST[k]}</button>`).join('')}</div>
         <div class="p-actions">
-          <button class="btn good" data-a="done">${nx ? (st === 'done' ? '✓ Done — go to next step' : '✓ Mark complete & next step') : '✓ Mark complete'}</button>
+          <button class="btn good" data-a="done">${si('check')} ${nx ? (st === 'done' ? 'Done — go to next step' : 'Mark complete & next step') : 'Mark complete'}</button>
           <div class="row"><button class="btn ghost" data-a="upto">Done up to here</button><button class="btn ghost" data-a="sketch">View sketch</button></div>
         </div>
         ${discussionHtml(n, keep)}${refsHtml(n, keepCap)}`;
@@ -576,11 +614,11 @@
   const teamLink = (t) => `${location.origin}${location.pathname}?team=${t}`;
   function actLi(a) {
     const pr = prog(a), sc = stats(a);
-    return `<button class="li" data-sel="${a.id}"><i class="d st-${nState(a)}" style="outline:2px solid ${acts[a.ai].color}33"></i><span class="ln" style="color:${acts[a.ai].color}">Act ${acts[a.ai].n}</span><span class="ellip">${esc(acts[a.ai].name)}</span><small>${sc.open ? `<b class="iss">⚠ ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
+    return `<button class="li" data-sel="${a.id}"><i class="d st-${nState(a)}" style="outline:2px solid ${acts[a.ai].color}33"></i><span class="ln" style="color:${acts[a.ai].color}">Act ${acts[a.ai].n}</span><span class="ellip">${esc(acts[a.ai].name)}</span><small>${sc.open ? `<b class="iss">${si('warn')} ${sc.open}</b> ` : ''}${pr.done}/${pr.total}</small></button>`;
   }
   function stepLi(s) {
     const sc = stats(s);
-    return `<button class="li" data-sel="${esc(s.id)}"><i class="d st-${status(s.id)}"></i><span class="ln">${esc(s.id)}</span><span class="ellip">${esc(s.s.t)}</span>${sc.c ? `<small>💬 ${sc.c}${sc.open ? ` <b class="iss">⚠</b>` : ''}</small>` : ''}</button>`;
+    return `<button class="li" data-sel="${esc(s.id)}"><i class="d st-${status(s.id)}"></i><span class="ln">${esc(s.id)}</span><span class="ellip">${esc(s.s.t)}</span>${sc.c ? `<small>${si('chat')} ${sc.c}${sc.open ? ` <b class="iss">${si('warn')}</b>` : ''}</small>` : ''}</button>`;
   }
 
   /* ---------- reference images ---------- */
@@ -775,7 +813,6 @@
     setTimeout(() => { c.innerHTML = `<div class="cap-top"><small>The end</small></div><h4>That's the roadmap</h4><p>${esc(text)}</p><div class="cap-bar"><i style="width:100%"></i></div>`; c.classList.add('on'); }, 280);
     const tok = story.token;
     if (story.voice && CAN_SPEAK) setTimeout(() => { if (tok === story.token && story.done) speak(text, () => {}); }, 900);
-    confetti(innerWidth / 2, innerHeight / 3);
   }
   function resetAccordion() { [...actNodes, ...chNodes].forEach((x) => { x.collapsed = true; }); }
   function exitStory(quiet) {
@@ -787,29 +824,29 @@
   function nextStep() {
     if (story.on) { if (story.i >= all.length - 1) finishStory(); else gotoBeat(story.i + 1); return; }
     const n = sel && sel.type === 'step' ? sel : null, nx = n ? order[n.oi + 1] : null;
-    if (!nx) { toast('That was the last step 🎉'); return; }
+    if (!nx) { toast('That was the last step.'); return; }
     select(nx);
   }
 
   /* ============================================================
-     Activity drawer, sketches lightbox, toast, confetti
+     Activity drawer, sketches lightbox, toast
      ============================================================ */
   let dFilter = 'all';
   function feedItem(it) {
     if (it.t === 'comment') {
       const c = it.c;
-      return `<button class="ev" data-sel="${esc(c.nodeId)}"><div class="av ${c.kind === 'issue' ? 'bad' : ''}">${c.kind === 'issue' ? '⚠' : '💬'}</div><div>${teamBadge(c.team)} <b>${esc(c.name)}</b> ${c.kind === 'issue' ? (c.resolved ? 'resolved an issue on' : 'raised an issue on') : 'commented on'} <b>${esc(nodeName(c.nodeId))}</b><q>“${esc(c.body.slice(0, 120))}”</q><small>${ago(c.ts)}</small></div></button>`;
+      return `<button class="ev" data-sel="${esc(c.nodeId)}"><div class="av ${c.kind === 'issue' ? 'bad' : ''}">${c.kind === 'issue' ? si('warn') : si('chat')}</div><div>${teamBadge(c.team)} <b>${esc(c.name)}</b> ${c.kind === 'issue' ? (c.resolved ? 'resolved an issue on' : 'raised an issue on') : 'commented on'} <b>${esc(nodeName(c.nodeId))}</b><q>“${esc(c.body.slice(0, 120))}”</q><small>${ago(c.ts)}</small></div></button>`;
     }
     const e = it.e; let line;
     if (e.type === 'upload') line = `uploaded a reference image to <b>${esc(nodeName(e.nodeId))}</b>`;
     else if (e.type === 'bulk') line = `marked <b>${e.n} steps</b> done up to <b>${esc(nodeName(e.nodeId))}</b>`;
     else line = `set <b>${esc(nodeName(e.nodeId))}</b> to <b>${ST[e.to] || e.to}</b>`;
-    return `<button class="ev" data-sel="${esc(e.nodeId)}"><div class="av">${e.type === 'upload' ? '🖼' : e.to === 'done' || e.type === 'bulk' ? '✓' : '•'}</div><div>${teamBadge(e.team)} <b>${esc(e.name)}</b> ${line}<small>${ago(e.ts)}</small></div></button>`;
+    return `<button class="ev" data-sel="${esc(e.nodeId)}"><div class="av">${e.type === 'upload' ? si('image') : e.to === 'done' || e.type === 'bulk' ? si('check') : '•'}</div><div>${teamBadge(e.team)} <b>${esc(e.name)}</b> ${line}<small>${ago(e.ts)}</small></div></button>`;
   }
   function renderDrawer() {
     const t = prog(root), f = firstOpen();
     const open = S.comments.filter((c) => c.kind === 'issue' && !c.resolved).length;
-    const html = `<div class="d-sum"><b>${t.done}</b> of <b>${t.total}</b> steps done · <b>${t.doing}</b> in progress · <b>${t.blocked}</b> blocked${open ? ` · <b class="iss">⚠ ${open} open issue${open > 1 ? 's' : ''}</b>` : ''}.<br>${f ? `Next up: <b>${esc(f.id)} · ${esc(f.s.t)}</b> in chapter ${chapters[f.ci].n}.` : 'Everything is complete.'}</div>`;
+    const html = `<div class="d-sum"><b>${t.done}</b> of <b>${t.total}</b> steps done · <b>${t.doing}</b> in progress · <b>${t.blocked}</b> blocked${open ? ` · <b class="iss">${si('warn')} ${open} open issue${open > 1 ? 's' : ''}</b>` : ''}.<br>${f ? `Next up: <b>${esc(f.id)} · ${esc(f.s.t)}</b> in chapter ${chapters[f.ci].n}.` : 'Everything is complete.'}</div>`;
     let items = [...S.events.map((e) => ({ t: 'e', ts: e.ts, e })), ...S.comments.filter((c) => !c.attachmentId || true).map((c) => ({ t: 'comment', ts: c.ts, c }))];
     items = items.filter((it) => dFilter === 'all' || (dFilter === 'comment' && it.t === 'comment' && it.c.kind === 'comment') || (dFilter === 'issue' && it.t === 'comment' && it.c.kind === 'issue') || (dFilter === 'status' && it.t === 'e'));
     items.sort((a, b) => b.ts - a.ts);
@@ -829,16 +866,6 @@
 
   let toastT;
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200); }
-  function confetti(x, y) {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const cols = ['#c084fc', '#a855f7', '#ceb7dd', '#e879f9', '#818cf8', '#34d399'];
-    for (let i = 0; i < 46; i++) {
-      const c = document.createElement('i'); c.className = 'confetti';
-      c.style.left = x + 'px'; c.style.top = y + 'px'; c.style.background = cols[i % cols.length];
-      c.style.setProperty('--dx', (Math.random() * 520 - 260) + 'px'); c.style.setProperty('--dy', (Math.random() * 420 - 120) + 'px'); c.style.setProperty('--rot', (Math.random() * 720 - 360) + 'deg');
-      document.body.appendChild(c); setTimeout(() => c.remove(), 1700);
-    }
-  }
 
   /* ============================================================
      Intro tour (first visit)
@@ -846,7 +873,7 @@
   const tourKey = () => 'calybrate-tour-v3-' + (profile ? profile.team : 'x');
   const TOUR = [
     { art: `<svg viewBox="0 0 220 120"><g fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M42 60C70 60 70 22 100 22M42 60C70 60 70 46 100 46M42 60C70 60 70 74 100 74M42 60C70 60 70 98 100 98" stroke="#c084fc"/><path d="M122 22h40M122 46h40M122 74h40M122 98h40" stroke="#6f6390"/></g><rect x="6" y="46" width="44" height="28" rx="8" fill="#ceb7dd"/><g fill="#a855f7"><rect x="100" y="12" width="26" height="20" rx="10"/><rect x="100" y="36" width="26" height="20" rx="10"/><rect x="100" y="64" width="26" height="20" rx="10"/><rect x="100" y="88" width="26" height="20" rx="10"/></g><g fill="#2a1d44" stroke="#8b5cf6"><rect x="160" y="14" width="46" height="16" rx="5"/><rect x="160" y="38" width="46" height="16" rx="5"/><rect x="160" y="66" width="46" height="16" rx="5"/><rect x="160" y="90" width="46" height="16" rx="5"/></g></svg>`,
-      title: 'This is the Calybrate roadmap', text: () => `Every screen, role and report of the product on one map — ${chapters.length} chapters and ${order.length} steps, drawn from the original sketches. It's the shared plan between the Sandbox and Liveroom teams.` },
+      logos: true, title: 'This is the Calybrate roadmap', text: () => `Every screen, role and report of the product on one map — ${chapters.length} chapters and ${order.length} steps, drawn from the original sketches. It's the shared plan between the Sandbox and Liveroom teams.` },
     { art: `<svg viewBox="0 0 220 120"><g stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M40 60C64 60 64 24 88 24M40 60C64 60 64 48 88 48M40 60C64 60 64 72 88 72M40 60C64 60 64 96 88 96" stroke="#c084fc"/></g><rect x="6" y="46" width="38" height="28" rx="8" fill="#ceb7dd"/><g><rect x="88" y="14" width="50" height="20" rx="10" fill="#d8b4fe"/><rect x="88" y="38" width="50" height="20" rx="10" fill="#a855f7"/><rect x="88" y="62" width="50" height="20" rx="10" fill="#e879f9"/><rect x="88" y="86" width="50" height="20" rx="10" fill="#818cf8"/></g><g stroke="#a855f7" stroke-width="2" fill="none"><path d="M138 48c14 0 14-12 28-12M138 48c14 0 14 0 28 0M138 48c14 0 14 12 28 12"/></g><g fill="#2a1d44" stroke="#8b5cf6"><rect x="166" y="28" width="44" height="14" rx="5"/><rect x="166" y="41" width="44" height="14" rx="5"/><rect x="166" y="54" width="44" height="14" rx="5"/></g></svg>`,
       title: 'Open one part at a time', text: () => 'Start with the four Acts. Click an Act to open its chapters, then a chapter to open its steps. Only the part you pick stays open, so the map stays calm. Prefer a guided tour? Hit "Play the story".' },
     { art: `<svg viewBox="0 0 220 120"><rect x="16" y="14" width="120" height="38" rx="12" fill="#2a1d44" stroke="#f472b6"/><rect x="28" y="26" width="70" height="6" rx="3" fill="#f472b6"/><rect x="28" y="38" width="46" height="6" rx="3" fill="#6f6390"/><rect x="84" y="62" width="120" height="38" rx="12" fill="#2a1d44" stroke="#38bdf8"/><rect x="96" y="74" width="76" height="6" rx="3" fill="#38bdf8"/><rect x="96" y="86" width="40" height="6" rx="3" fill="#6f6390"/><circle cx="196" cy="22" r="11" fill="#fb7185"/><path d="M196 17v6M196 27h.01" stroke="#1d0309" stroke-width="2.4" stroke-linecap="round"/></svg>`,
@@ -855,15 +882,18 @@
       title: 'Share reference images', text: () => 'Sandbox can upload page-structure or reference images on any section. Liveroom can open them and comment right on the image — everything stays attached to the part of the roadmap it belongs to.' }
   ];
   let tourI = 0;
+  const themeArt = (svg) => svg.replace(/#a855f7/gi, cv('--purple')).replace(/#c084fc/gi, cv('--glow')).replace(/#8b5cf6/gi, cv('--glow'))
+    .replace(/#2a1d44/gi, cv('--surface2')).replace(/#3a2a5c/gi, cv('--raise')).replace(/#4a3675/gi, cv('--raise')).replace(/#6f6390/gi, cv('--todo'))
+    .replace(/#f472b6/gi, cv('--t-sandbox')).replace(/#38bdf8/gi, cv('--t-liveroom'));
   function showTour() { tourI = 0; $('#tour').hidden = false; renderTour(); }
   function renderTour() {
     const t = TOUR[tourI], last = tourI === TOUR.length - 1;
     $('#tour').innerHTML = `<div class="tour-card" key="${tourI}">
-      <div class="tour-art">${t.art}</div>
+      <div class="tour-art">${themeArt(t.art)}</div>
       <small>${tourI + 1} of ${TOUR.length}${profile ? ` · signed in as ${esc(TEAMS[profile.team])}` : ''}</small>
-      <h2>${esc(t.title)}</h2><p>${esc(t.text())}</p>
+      <h2>${esc(t.title)}</h2>${t.logos ? `<div class="logos-row">${teamBadge('sandbox')}<span>and</span>${teamBadge('liveroom')}</div>` : ''}<p>${esc(t.text())}</p>
       <div class="tour-dots">${TOUR.map((_, i) => `<i class="${i === tourI ? 'on' : ''}"></i>`).join('')}</div>
-      <div class="tour-actions"><button class="btn ghost" data-a="tour-skip">${last ? 'Close' : 'Skip'}</button>${last ? '<button class="btn ghost" data-a="tour-play">▶ Play the story</button>' : ''}<button class="btn primary" data-a="tour-next">${last ? 'Start exploring' : 'Next'}</button></div></div>`;
+      <div class="tour-actions"><button class="btn ghost" data-a="tour-skip">${last ? 'Close' : 'Skip'}</button>${last ? `<button class="btn ghost" data-a="tour-play">${si('play')} Play the story</button>` : ''}<button class="btn primary" data-a="tour-next">${last ? 'Start exploring' : 'Next'}</button></div></div>`;
   }
   function endTour() {
     $('#tour').hidden = true;
@@ -914,9 +944,9 @@
       case 'toggle-sel': toggleNode(sel); renderPanel(); break;
       case 'sketch': openLightbox(chapters[sel.ci].sketch, chapters[sel.ci].name); break;
       case 'done': {
-        guard(() => setStatus(sel.id, 'done')); const r = el.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top);
+        guard(() => setStatus(sel.id, 'done'));
         const chn = chNodes[sel.ci], pc = prog(chn);
-        if (pc.done === pc.total) toast(`Chapter ${chapters[sel.ci].n} complete — ${chapters[sel.ci].name} ✓`);
+        if (pc.done === pc.total) toast(`Chapter ${chapters[sel.ci].n} complete — ${chapters[sel.ci].name}`);
         refresh(); nextStep(); break;
       }
       case 'upto': {
@@ -935,6 +965,7 @@
       case 'vw-post': postViewerComment(); break;
       case 'vw-goto': { const n = N[vw.nodeId]; closeViewer(); if (n) select(n); break; }
       case 'vw-del': if (confirm('Delete this image and its comments?')) { const a2 = S.attachments.find((x) => x.id === vw.id); guard(async () => { await store.deleteAttachment(a2); closeViewer(); await reload(); }); } break;
+      case 'theme': try { localStorage.setItem('calybrate-theme-pref', el.dataset.t); } catch (err) { /* ignore */ } applyTheme(el.dataset.t); break;
       case 'tour': showTour(); break;
       case 'copy-link': { const link = teamLink(el.dataset.team); (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(() => toast(`${TEAMS[el.dataset.team]} link copied`), () => { window.prompt('Copy this link', link); }); break; }
       case 'tour-next': if (tourI < TOUR.length - 1) { tourI++; renderTour(); } else { endTour(); } break;
@@ -1029,6 +1060,7 @@
     const demo = store.mode === 'demo';
     $('#login').hidden = false;
     $('#login-demo').hidden = !demo; $('#login-form').hidden = demo;
+    applyTheme(chooseTheme());
     const card = $('.login-card'); card.classList.remove('t-sandbox', 't-liveroom');
     if (want) {
       card.classList.add('t-' + want);
@@ -1062,7 +1094,7 @@
   async function enter() {
     if (entered) return; entered = true;
     $('#login').hidden = true; document.body.classList.remove('locked');
-    const who = $('#who'); who.hidden = false; who.className = `who t-${profile.team}`; $('span', who).textContent = new RegExp(TEAMS[profile.team], 'i').test(profile.name) ? profile.name : `${TEAMS[profile.team]} · ${profile.name}`;
+    const who = $('#who'); who.hidden = false; who.className = `who t-${profile.team}`; who.innerHTML = `${teamBadge(profile.team)}<span>${esc(new RegExp(TEAMS[profile.team], 'i').test(profile.name) ? profile.name : `${TEAMS[profile.team]} · ${profile.name}`)}</span>`; applyTheme(chooseTheme());
     who.dataset.a = 'who';
     await reload();
     buildMap(); apply(); renderToolbar();

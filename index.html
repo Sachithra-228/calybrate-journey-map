@@ -7,7 +7,7 @@
 <link rel="icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 <main>
@@ -45,8 +45,8 @@
 
     <div id="login-demo" hidden>
       <div class="demo-note"><b>Demo mode</b> — no shared server is connected yet, so data stays in this browser. Pick a team to try it. See <code>SETUP.md</code> to switch on the real logins.</div>
-      <button class="team-btn t-sandbox" data-team="sandbox"><i class="tdot"></i><span><b>Continue as Sandbox</b><small>Plans the product · uploads references · raises issues</small></span></button>
-      <button class="team-btn t-liveroom" data-team="liveroom"><i class="tdot"></i><span><b>Continue as Liveroom</b><small>Builds the product · updates progress · resolves issues</small></span></button>
+      <button class="team-btn t-sandbox" data-team="sandbox"><span class="tlogo"><img src="assets/sandbox.png" alt="Sandbox"></span><span><b>Continue as Sandbox</b><small>Plans the product · uploads references · raises issues</small></span></button>
+      <button class="team-btn t-liveroom" data-team="liveroom"><span class="tlogo"><img src="assets/liveroom.png" alt="Liveroom"></span><span><b>Continue as Liveroom</b><small>Builds the product · updates progress · resolves issues</small></span></button>
     </div>
     <p class="login-err" id="login-err" role="alert"></p>
   </div>
@@ -90,9 +90,9 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="config.js?v=6"></script>
-<script src="store.js?v=6"></script>
-<script src="data.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="config.js?v=10"></script>
+<script src="store.js?v=10"></script>
+<script src="data.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
