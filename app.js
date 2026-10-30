@@ -101,8 +101,11 @@
   /* ============================================================
      Layout (left → right, mind-map style)
      ============================================================ */
-  const DIM = { root: [270, 150], act: [200, 62], chapter: [292, 58], step: [212, 66] };
-  const COLX = (d) => (d === 0 ? 0 : d === 1 ? 380 : d === 2 ? 670 : 1060 + (d - 3) * 262);
+  const DIMS = { d: { root: [270, 150], act: [200, 62], chapter: [292, 58], step: [212, 66] }, m: { root: [200, 128], act: [158, 58], chapter: [226, 54], step: [196, 64] } };
+  const COLS = { d: [0, 380, 670, 1060, 262], m: [0, 250, 440, 700, 224] };
+  let mobile = innerWidth <= 800, DIM = mobile ? DIMS.m : DIMS.d, COL = mobile ? COLS.m : COLS.d;
+  document.body.classList.toggle('mobile', mobile);
+  const COLX = (d) => (d < 3 ? COL[d] : COL[3] + (d - 3) * COL[4]);
   const ROW = 78, GAP_CH = 0.12, GAP_ACT = 0.5;
   const CAN_SPEAK = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
   const story = { on: false, i: 0, playing: false, done: false, voice: CAN_SPEAK, speed: 1, timer: 0, fb: 0, token: 0 };
@@ -151,7 +154,7 @@
     } else if (n.type === 'act') {
       el.innerHTML = `<div class="txt"><span class="nid">ACT ${acts[n.ai].n}</span><span class="ttl">${esc(acts[n.ai].name)}</span><span class="sub"></span></div>`;
     } else if (n.type === 'chapter') {
-      el.innerHTML = `<span class="num">${n.ch.n}</span><div class="txt"><span class="ttl">${esc(n.ch.name)}</span><div class="meter"><div class="bar"><i></i><i class="doing"></i><i class="blocked"></i></div><span class="cnt"></span></div></div>`;
+      el.innerHTML = `<span class="num">${n.ch.n}</span><div class="txt"><span class="ttl"><span class="t-full">${esc(n.ch.name)}</span><span class="t-short">${esc(n.ch.short)}</span></span><div class="meter"><div class="bar"><i></i><i class="doing"></i><i class="blocked"></i></div><span class="cnt"></span></div></div>`;
     } else {
       const s = n.s;
       el.innerHTML = `<span class="ico">${ico(s.k)}</span><span class="txt"><span class="nid">${esc(s.id)}</span><span class="ttl">${esc(s.t)}</span></span><i class="dot">${CHECK}</i><span class="slot"></span>`;
@@ -245,6 +248,7 @@
   }
   function fitRect(x1, y1, x2, y2, maxK = 1, pad = 70, res = 160) {
     const a = area(), w = x2 - x1, h = y2 - y1;
+    if (mobile) pad = Math.round(pad * 0.3);
     cam.k = Math.max(0.12, Math.min((a.w - pad * 2) / w, (a.h - res) / h, maxK));
     cam.x = (a.w - w * cam.k) / 2 - x1 * cam.k;
     cam.y = (a.h - h * cam.k) / 2 - y1 * cam.k + 6 - (res - 160) / 2;
@@ -369,7 +373,10 @@
     document.body.classList.add('panel-open');
     if (changed || fitCh) apply(); else refresh();
     renderPanel();
-    if (n.type === 'chapter' || n.type === 'act') fitNode(n, 1);
+    if (mobile && n.type === 'chapter') {
+      const a = area(); cam.k = 0.68;
+      cam.x = a.w * 0.05 - n.left * cam.k; cam.y = a.h / 2 - (n.top + n.h / 2) * cam.k; applyCam();
+    } else if (n.type === 'chapter' || n.type === 'act') fitNode(n, 1);
     else if (n.type === 'root') fitAll(1);
     else if (o.center !== false) centerOn(n, 0.8);
     drawMinimap();
@@ -395,7 +402,10 @@
         <div class="stat-row"><div class="stat done"><b>${t.done}</b><span>done</span></div><div class="stat doing"><b>${t.doing}</b><span>in progress</span></div><div class="stat blocked"><b>${t.blocked}</b><span>blocked</span></div><div class="stat"><b>${t.total - t.done - t.doing - t.blocked}</b><span>to do</span></div></div>
         <div class="p-actions"><button class="btn primary" data-a="story">▶ Play the story</button>
         <div class="row"><button class="btn ghost" data-a="expand-all">Expand all</button><button class="btn ghost" data-a="collapse-all">Collapse all</button></div></div>
-        <div class="lbl">Chapters</div><div class="list">${chNodes.map((c) => chLi(c)).join('')}</div>`;
+        <div class="lbl">Chapters</div><div class="list">${chNodes.map((c) => chLi(c)).join('')}</div>
+        <div class="lbl">More</div>
+        <div class="p-actions" style="margin-top:0"><div class="row"><button class="btn ghost" id="btn-activity">Activity</button><button class="btn ghost" id="btn-sketches">All sketches</button></div>
+        <div class="row"><button class="btn ghost" id="m-export">Export</button><button class="btn ghost" id="m-import">Import</button><button class="btn ghost danger-t" id="m-reset">Reset</button></div></div>`;
     } else if (n.type === 'act') {
       const a = acts[n.ai], pr = prog(n);
       h += `<div class="p-top"><span class="chip id" style="background:${a.color};color:#0b0612">Act ${a.n}</span></div><h3>${esc(a.name)}</h3>
@@ -539,7 +549,7 @@
     }, 280);
   }
   function storyCam(n) {
-    const a = area(), mobile = innerWidth <= 800, res = mobile ? 230 : 300, minFit = mobile ? 0.8 : 0.55;
+    const a = area(), res = mobile ? 230 : 300, minFit = mobile ? 0.8 : 0.55;
     const group = n.type === 'step' ? (() => { const cn = chNodes[n.ci]; return [cn, ...descendants(cn)]; })() : all;
     const [x1, y1, x2, y2] = boundsOf(group);
     const k = Math.min((a.w - 120) / (x2 - x1), (a.h - res) / (y2 - y1), 1);
@@ -676,7 +686,7 @@
   function toggleNode(n) {
     if (story.on) return;
     n.collapsed = !n.collapsed; apply();
-    if (!n.collapsed && n.type !== 'step') fitNode(n, 1);
+    if (!n.collapsed && n.type !== 'step') { if (mobile && n.type === 'chapter') { const a = area(); cam.k = 0.68; cam.x = a.w * 0.05 - n.left * cam.k; cam.y = a.h / 2 - (n.top + n.h / 2) * cam.k; applyCam(); } else fitNode(n, 1); }
   }
   function postComment() {
     const ta = $('#c-text'), v = ta.value.trim();
@@ -734,7 +744,7 @@
       case 'btn-activity': openDrawer(); break;
       case 'd-close': closeDrawer(); break;
       case 'btn-sketches': openLightbox(Array.from({ length: D.imageCount }, (_, i) => i + 1), 'All sketches'); break;
-      case 'brand': e.preventDefault(); if (story.on) exitStory(true); deselect(); chNodes.forEach((c) => { c.collapsed = true; }); apply(); fitAll(); break;
+      case 'brand': e.preventDefault(); if (story.on) exitStory(true); chNodes.forEach((c) => { c.collapsed = true; }); apply(); select(root); break;
       case 'lb-close': $('#lightbox').hidden = true; break;
       case 'lb-prev': LB.i = (LB.i + LB.list.length - 1) % LB.list.length; showLb(); break;
       case 'lb-next': LB.i = (LB.i + 1) % LB.list.length; showLb(); break;
@@ -749,7 +759,7 @@
     if (t.id === 'scrim') closeDrawer();
     if (!t.closest('.menu')) closeMenu();
   });
-  const closeMenu = () => $('.menu').removeAttribute('open');
+  const closeMenu = () => { const m = $('.menu'); if (m) m.removeAttribute('open'); };
 
   document.addEventListener('keydown', (e) => {
     const typing = /^(TEXTAREA|INPUT)$/.test(e.target.tagName);
@@ -786,7 +796,15 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `calybrate-journey-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  window.addEventListener('resize', () => { drawMinimap(); updateViewport(); });
+  window.addEventListener('resize', () => {
+    const m = innerWidth <= 800;
+    if (m !== mobile) {
+      mobile = m; DIM = m ? DIMS.m : DIMS.d; COL = m ? COLS.m : COLS.d; document.body.classList.toggle('mobile', m);
+      all.forEach((n) => { n.el.style.width = DIM[n.type][0] + 'px'; n.el.style.height = DIM[n.type][1] + 'px'; });
+      apply(); if (story.on && !story.done) storyCam(all[story.i]); else fitAll();
+    }
+    drawMinimap(); updateViewport();
+  });
 
   /* ---------- boot: the full map, straight away ---------- */
   apply(); renderToolbar();

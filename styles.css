@@ -318,3 +318,12 @@ textarea:focus { border-color: var(--purple); }
 @media (max-width: 800px) and (max-height: 560px) { .caption p { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 body.story .minimap { display: none; }
+.btn.danger-t { color: var(--blocked); }
+body.mobile .node.chapter .ttl { font-size: 15px; }
+body.mobile .node.act .ttl { font-size: 15px; }
+body.mobile .node.step .ttl { font-size: 13.5px; }
+body.mobile .node.root .plate { padding: 12px 14px; border-radius: 18px; }
+.node.chapter .t-short { display: none; }
+body.mobile .node.chapter .t-full { display: none; }
+body.mobile .node.chapter .t-short { display: inline; }
+.node.chapter .ttl { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
