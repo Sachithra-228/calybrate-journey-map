@@ -36,6 +36,7 @@
     $('#docs-view').hidden = v !== 'docs'; $('#tpl-view').hidden = v !== 'tpl';
     $$('#switch button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
     if (v !== 'docs') closeViewer(true);
+    if (window.CalTpl) { if (v === 'tpl') CalTpl.show(); else CalTpl.hide(); }
     if (v === 'docs') renderList();
     if (v === 'roadmap') { window.dispatchEvent(new Event('resize')); }
     const h = v === 'docs' ? '#documents' : v === 'tpl' ? '#templates' : '';
@@ -44,7 +45,8 @@
   function route() {
     const m = /^#documents(?:\/([^/]+)(?:\/(\d+))?)?$/.exec(location.hash || '');
     if (m) { setView('docs'); if (m[1] && find(m[1])) openDoc(m[1], +m[2] || 1); return; }
-    if (location.hash === '#templates') setView('tpl');
+    const tm = /^#templates(?:\/([^/]+))?$/.exec(location.hash || '');
+    if (tm) { setView('tpl'); if (tm[1] && window.CalTpl) CalTpl.open(tm[1]); }
   }
 
   /* ---------------- list ---------------- */
@@ -289,8 +291,9 @@
   window.CalDocs = {
     async init(a) {
       api = a; $('#switch').hidden = false;
+      if (window.CalTpl) CalTpl.init(api);
       await loadUploaded(); renderList(); route();
-      try { api.store.subscribe(async () => { await loadUploaded(); if (view === 'docs' && !cur) renderList(); }); } catch (e) { /* ignore */ }
+      try { api.store.subscribe(async () => { await loadUploaded(); if (view === 'docs' && !cur) renderList(); if (window.CalTpl) CalTpl.onData(); }); } catch (e) { /* ignore */ }
     },
     onData() { if (!api) return; if (view === 'docs' && !cur) renderList(); if (cur && cur.pdf) { updateTop(); renderNav(); const ta = $('#dv-text'); renderSide(); if (ta && document.activeElement !== ta) { /* keep draft */ } } },
     nodeName(id) { const n = parseNode(id); if (!n) return id; const d = find(n.id); return d ? `${d.title} · ${n.page ? 'page ' + n.page : 'whole document'}` : id; },

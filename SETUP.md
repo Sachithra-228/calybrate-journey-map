@@ -15,6 +15,9 @@ Out of the box the app runs in **demo mode**: data stays in one browser, and the
 ### 2b. Documents (PDF uploads), optional
 The **Documents** area ships with the three design PDFs (in `documents/`), which need no setup. To let the teams upload more PDFs, open **SQL Editor → New query**, paste [`supabase/documents.sql`](supabase/documents.sql) and **Run** it once (after `schema.sql`). It adds a `documents` table and a private `documents` bucket (PDF only, 50 MB per file). Comments on documents reuse the existing comments table.
 
+### 2c. Templates (page folders), optional
+The **Templates** area lets the teams create a template per redesigned page, upload its HTML/CSS folder and see it live. To use it with the shared backend, run [`supabase/templates.sql`](supabase/templates.sql) once in the SQL Editor (after `schema.sql`). It adds a `templates` table and a private `templates` bucket (50 MB per file). Demo mode needs nothing.
+
 ## 3. Create the two logins
 1. **Authentication → Providers → Email**: keep it enabled. Under **Authentication → Sign In / Providers** turn **off "Allow new users to sign up"** so nobody else can register.
 2. **Authentication → Users → Add user → Create new user**. Create one account for each team (tick *Auto Confirm User*):

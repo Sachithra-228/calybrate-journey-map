@@ -13,18 +13,22 @@
   const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'id' + Date.now() + Math.random().toString(16).slice(2));
   const toTs = (v) => new Date(v).getTime();
 
-  function idbTx(mode, fn) {
+  function idbTx(mode, fn, store) {
+    store = store || 'docs';
     return new Promise((res, rej) => {
-      const open = indexedDB.open('calybrate-docs', 1);
-      open.onupgradeneeded = () => open.result.createObjectStore('docs', { keyPath: 'id' });
+      const open = indexedDB.open('calybrate-docs', 2);
+      open.onupgradeneeded = () => { ['docs', 'tpls'].forEach((n) => { if (!open.result.objectStoreNames.contains(n)) open.result.createObjectStore(n, { keyPath: 'id' }); }); };
       open.onerror = () => rej(open.error);
       open.onsuccess = () => {
-        const t = open.result.transaction('docs', mode); let rq;
-        try { rq = fn(t.objectStore('docs')); } catch (e) { rej(e); return; }
+        const t = open.result.transaction(store, mode); let rq;
+        try { rq = fn(t.objectStore(store)); } catch (e) { rej(e); return; }
         t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
       };
     });
   }
+
+  const MIME = { html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript', json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', mp4: 'video/mp4', webm: 'video/webm', txt: 'text/plain', xml: 'application/xml' };
+  const mimeOf = (path, file) => (file && file.type) || MIME[(path.split('.').pop() || '').toLowerCase()] || 'application/octet-stream';
 
   /* ---------------- local demo store ---------------- */
   function localStore() {
@@ -64,6 +68,16 @@
       async addDoc(p, { file, title, desc }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, title, desc: desc || '', size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file })); return id; },
       async deleteDoc(d) { await idbTx('readwrite', (s) => s.delete(d.id)); },
       async docUrl(d) { const r = await idbTx('readonly', (s) => s.get(d.id)); if (!r) throw new Error('Document not found'); return URL.createObjectURL(r.blob); },
+      /* page templates (a folder of html / css / js / images) */
+      async listTpls() { const all = (await idbTx('readonly', (s) => s.getAll(), 'tpls')) || []; return all.map((t) => ({ id: t.id, title: t.title, desc: t.desc, entry: t.entry, files: (t.files || []).map((f) => ({ path: f.path, size: f.size })), team: t.team, name: t.name, uploaderId: t.uploaderId, ts: t.ts })).sort((a, b) => b.ts - a.ts); },
+      async createTpl(p, { title, desc }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, title, desc: desc || '', entry: '', files: [], team: p.team, name: p.name, uploaderId: p.id, ts: Date.now() }), 'tpls'); return id; },
+      async setTplFiles(p, t, { files, entry }) {
+        const r = await idbTx('readonly', (s) => s.get(t.id), 'tpls'); if (!r) throw new Error('Template not found');
+        r.files = files.map((f) => ({ path: f.path, size: f.file.size, blob: f.file })); r.entry = entry;
+        await idbTx('readwrite', (s) => s.put(r), 'tpls');
+      },
+      async deleteTpl(t) { await idbTx('readwrite', (s) => s.delete(t.id), 'tpls'); },
+      async tplFiles(t) { const r = await idbTx('readonly', (s) => s.get(t.id), 'tpls'); const m = new Map(); ((r && r.files) || []).forEach((f) => m.set(f.path, f.blob)); return m; },
       subscribe(cb) { const h = (e) => { if (e.key === KEY) cb(); }; window.addEventListener('storage', h); return () => window.removeEventListener('storage', h); }
     };
   }
@@ -145,6 +159,32 @@
         const { data, error } = await sb.storage.from('documents').createSignedUrl(d.path, 3600, download ? { download: (d.title || 'document').replace(/[^\w .-]/g, '') + '.pdf' } : undefined);
         if (error) throw error;
         return data.signedUrl;
+      },
+      async listTpls() {
+        const r = await sb.from('templates').select('*').order('created_at', { ascending: false });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((d) => ({ id: d.id, title: d.title, desc: d.description || '', entry: d.entry || '', files: d.files || [], team: d.team, name: d.display_name, uploaderId: d.uploader, ts: toTs(d.created_at) }));
+      },
+      async createTpl(p, { title, desc }) { return ok(await sb.from('templates').insert({ title, description: desc || null, uploader: p.id, team: p.team, display_name: p.name }).select('id').single()).id; },
+      async setTplFiles(p, t, { files, entry }) {
+        const v = Date.now().toString(36), bucket = sb.storage.from('templates');
+        const items = files.map((f, i) => ({ path: f.path, size: f.file.size, key: `${t.id}/${v}/${i}_${f.path.split('/').pop().replace(/[^\w.-]/g, '_')}`, file: f.file }));
+        let n = 0; const done = [];
+        try {
+          await Promise.all(Array.from({ length: 4 }, async () => { while (n < items.length) { const it = items[n++]; ok(await bucket.upload(it.key, it.file, { contentType: mimeOf(it.path, it.file) })); done.push(it.key); } }));
+          ok(await sb.from('templates').update({ entry, files: items.map((i) => ({ path: i.path, size: i.size, key: i.key })) }).eq('id', t.id));
+        } catch (e) { if (done.length) await bucket.remove(done); throw e; }
+        const old = (t.files || []).map((f) => f.key).filter(Boolean); if (old.length) await bucket.remove(old);
+      },
+      async deleteTpl(t) { const keys = (t.files || []).map((f) => f.key).filter(Boolean); if (keys.length) await sb.storage.from('templates').remove(keys); ok(await sb.from('templates').delete().eq('id', t.id)); },
+      async tplFiles(t) {
+        const bucket = sb.storage.from('templates'), list = (t.files || []).filter((f) => f.key), m = new Map();
+        if (!list.length) return m;
+        const signed = ok(await bucket.createSignedUrls(list.map((f) => f.key), 3600));
+        const url = {}; signed.forEach((x) => { if (x.signedUrl) url[x.path] = x.signedUrl; });
+        let n = 0;
+        await Promise.all(Array.from({ length: 6 }, async () => { while (n < list.length) { const f = list[n++]; if (!url[f.key]) continue; const r = await fetch(url[f.key]); if (r.ok) m.set(f.path, await r.blob()); } }));
+        return m;
       },
       subscribe(cb) {
         let t;

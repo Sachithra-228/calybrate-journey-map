@@ -554,3 +554,27 @@ body.drop-on .dgrid { outline: 2px dashed var(--glow); outline-offset: 10px; bor
 .dv-pbtn { display: none; } .dv-pbtn b { font-size: 12px; }
 @media (max-width: 800px) { .dv-pbtn { display: inline-flex; } }
 
+
+/* ---- templates: create, upload a page folder, live preview ---- */
+.tthumb { background: linear-gradient(135deg, rgba(var(--p-rgb), .35), rgba(var(--b-rgb), .35)); }
+.tchips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
+.chip { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 99px; color: var(--text); background: var(--surface2); border: 1px solid var(--line2); cursor: pointer; } .chip:hover { border-color: var(--glow); }
+.view.tdetail { display: flex; flex-direction: column; overflow: hidden; padding: 78px 18px 16px; }
+.tp-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.tp-title { display: grid; gap: 2px; min-width: 0; } .tp-title strong { font: 700 20px var(--head); } .tp-title small { color: var(--muted); }
+.tp-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.tp-tools select { font: inherit; color: var(--text); background: var(--surface2); border: 1px solid var(--line2); border-radius: 12px; padding: 8px 10px; max-width: 260px; }
+.tp-file { color: var(--muted); font-size: 13px; }
+.tp-dev button { display: inline-flex; align-items: center; gap: 6px; } .tp-dev svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tp-err:empty { display: none; }
+.tp-stage { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: stretch; overflow: auto; border-radius: 16px; border: 1px solid var(--line2); background: repeating-conic-gradient(rgba(255,255,255,.03) 0 25%, transparent 0 50%) 0 0 / 22px 22px, rgba(var(--s-rgb), .6); }
+.tp-frame { border: 0; background: #fff; height: 100%; max-width: 100%; flex: none; display: block; } .tp-frame.framed { box-shadow: 0 0 0 1px var(--line2), 0 20px 60px rgba(0,0,0,.45); }
+.tp-body { flex: 1; display: grid; place-items: center; text-align: center; overflow: auto; }
+.tp-empty { width: min(560px, 100%); display: grid; gap: 14px; justify-items: center; }
+.tp-drop { width: 100%; display: grid; justify-items: center; gap: 6px; padding: 38px 20px; border: 2px dashed var(--line2); border-radius: 22px; cursor: pointer; background: rgba(var(--s-rgb), .6); } .tp-drop:hover, .tp-drop.over { border-color: var(--glow); background: rgba(var(--p-rgb), .1); }
+.tp-drop .dsvg { width: 38px; height: 38px; stroke: var(--glow); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; } .tp-drop b { font: 700 19px var(--head); } .tp-drop small { color: var(--muted); }
+.tp-or { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; } .tp-note { color: var(--muted); font-size: 13px; margin: 0; }
+@media (max-width: 800px) {
+  .view.tdetail { padding: 70px 10px 10px; }
+  .tp-dev button span, .tp-tools .btn .hide-m { display: none; } .tp-tools select { max-width: 150px; }
+}
