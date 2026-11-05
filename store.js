@@ -13,6 +13,19 @@
   const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'id' + Date.now() + Math.random().toString(16).slice(2));
   const toTs = (v) => new Date(v).getTime();
 
+  function idbTx(mode, fn) {
+    return new Promise((res, rej) => {
+      const open = indexedDB.open('calybrate-docs', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('docs', { keyPath: 'id' });
+      open.onerror = () => rej(open.error);
+      open.onsuccess = () => {
+        const t = open.result.transaction('docs', mode); let rq;
+        try { rq = fn(t.objectStore('docs')); } catch (e) { rej(e); return; }
+        t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+      };
+    });
+  }
+
   /* ---------------- local demo store ---------------- */
   function localStore() {
     const KEY = 'calybrate-journey-v2';
@@ -46,6 +59,11 @@
         const d = read(); d.attachments = d.attachments.filter((x) => x.id !== a.id); d.comments = d.comments.filter((c) => c.attachmentId !== a.id); write(d);
       },
       async attachmentUrl(a) { return a.url; },
+      /* uploaded documents (PDF) live in IndexedDB in demo mode: localStorage is far too small for them */
+      async listDocs() { const all = (await idbTx('readonly', (s) => s.getAll())) || []; return all.map((d) => ({ id: d.id, title: d.title, desc: d.desc, size: d.size, team: d.team, name: d.name, uploaderId: d.uploaderId, ts: d.ts })); },
+      async addDoc(p, { file, title, desc }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, title, desc: desc || '', size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file })); return id; },
+      async deleteDoc(d) { await idbTx('readwrite', (s) => s.delete(d.id)); },
+      async docUrl(d) { const r = await idbTx('readonly', (s) => s.get(d.id)); if (!r) throw new Error('Document not found'); return URL.createObjectURL(r.blob); },
       subscribe(cb) { const h = (e) => { if (e.key === KEY) cb(); }; window.addEventListener('storage', h); return () => window.removeEventListener('storage', h); }
     };
   }
@@ -109,6 +127,23 @@
         const { data, error } = await sb.storage.from('references').createSignedUrl(a.path, 3600);
         if (error) throw error;
         urlCache[a.path] = { url: data.signedUrl, exp: Date.now() + 3300 * 1000 };
+        return data.signedUrl;
+      },
+      async listDocs() {
+        const r = await sb.from('documents').select('*').order('created_at', { ascending: false });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((d) => ({ id: d.id, title: d.title, desc: d.description || '', size: d.size, team: d.team, name: d.display_name, uploaderId: d.uploader, ts: toTs(d.created_at), path: d.path }));
+      },
+      async addDoc(p, { file, title, desc }) {
+        const path = `${uid()}.pdf`;
+        ok(await sb.storage.from('documents').upload(path, file, { contentType: 'application/pdf' }));
+        const r = await sb.from('documents').insert({ title, description: desc || null, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
+        if (r.error) { await sb.storage.from('documents').remove([path]); throw r.error; }
+      },
+      async deleteDoc(d) { ok(await sb.from('documents').delete().eq('id', d.id)); await sb.storage.from('documents').remove([d.path]); },
+      async docUrl(d, download) {
+        const { data, error } = await sb.storage.from('documents').createSignedUrl(d.path, 3600, download ? { download: (d.title || 'document').replace(/[^\w .-]/g, '') + '.pdf' } : undefined);
+        if (error) throw error;
         return data.signedUrl;
       },
       subscribe(cb) {

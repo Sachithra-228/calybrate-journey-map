@@ -152,6 +152,7 @@
     if (sel) renderPanel();
     if ($('#drawer').classList.contains('open')) renderDrawer();
     if (vw) renderViewer();
+    if (window.CalDocs) CalDocs.onData();
   }
   async function guard(fn) {
     try { await fn(); } catch (e) { toast(e.message || 'Something went wrong'); try { await reload(); } catch (e2) { /* ignore */ } }
@@ -223,6 +224,7 @@
     return { c, open };
   }
   function nodeName(id) {
+    if (window.CalDocs && CalDocs.isDoc(id)) return CalDocs.nodeName(id);
     const n = N[id]; if (!n) return id;
     if (n.type === 'step') return `${n.s.id} · ${n.s.t}`;
     if (n.type === 'chapter') return `Chapter ${n.ch.n} · ${n.ch.name}`;
@@ -994,6 +996,7 @@
   document.addEventListener('click', (e) => {
     const t = e.target; let el;
     if ((el = t.closest('[data-a="alert-x"]'))) { const al = el.closest('.alert'); if (al) al.remove(); return; }
+    if ((el = t.closest('[data-sel]')) && window.CalDocs && CalDocs.isDoc(el.dataset.sel)) { closeDrawer(); if (el.classList.contains('alert')) el.remove(); CalDocs.openNode(el.dataset.sel); return; }
     if ((el = t.closest('[data-sel]'))) { closeDrawer(); if (vw) closeViewer(); const n = N[el.dataset.sel]; if (el.classList.contains('alert')) el.remove(); if (n) select(n, { tab: el.dataset.tab }); return; }
     const a = (el = t.closest('[data-a]')) ? el.dataset.a : (t.closest('button[id], a[id]') || {}).id;
     switch (a) {
@@ -1178,6 +1181,7 @@
     world.classList.add('nogo'); fitAll(1); requestAnimationFrame(() => requestAnimationFrame(() => world.classList.remove('nogo')));
     if (mobile) $('#hint').textContent = 'Tap an Act to open it · Drag to move · Pinch to zoom';
     store.subscribe(() => reload());
+    if (window.CalDocs) CalDocs.init({ store, S: () => S, profile: () => profile, esc, teamBadge, ago, si, msgHtml, toast, guard, reload, markNodeSeen });
     setTimeout(() => $('#hint').classList.add('gone'), 12000);
     stage.addEventListener('pointerdown', () => $('#hint').classList.add('gone'), { once: true });
     let seen = false; try { seen = !!localStorage.getItem(tourKey()); } catch (e) { /* ignore */ }

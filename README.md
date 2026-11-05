@@ -9,6 +9,7 @@ An interactive black-and-purple mind map of the Calybrate product journey — fr
 - **Two team logins (Sandbox ⇄ Liveroom)** — separate sign-ins, shared progress. Works in local demo mode out of the box; see [`SETUP.md`](SETUP.md) to connect the real shared backend (Supabase).
 - **Discussion on every section** — comment or raise an **issue** on any act, chapter or step; issues stay flagged until resolved. Live updates for both teams.
 - **Reference images** — upload page-structure / reference images on any section; the other team opens them and comments right on the image.
+- **Roadmap / Documents / Templates switcher** (top right) — **Documents** lists the design PDFs with full in-page preview, download, upload of new PDFs (50 MB max; needs `supabase/documents.sql` in shared mode) and comments or issues on every page or the whole document. **Templates** is a placeholder for now.
 - **Track progress** — Not started / In progress / Blocked / Done, with an activity feed of who did what.
 - **Team themes and logos** — Calybrate purple by default, Sandbox black and yellow, Liveroom deep blue. The theme follows your team after sign-in and can be switched from the overview panel. Team logos appear wherever a team is shown.
 - **Mobile friendly** — compact layout, pinch-to-zoom, bottom-sheet panel.

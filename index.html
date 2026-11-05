@@ -7,7 +7,7 @@
 <link rel="icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 <main>
@@ -17,6 +17,16 @@
     <button class="who" id="who" data-a="who" title="Open the overview"></button>
     <button class="bell" id="bell" data-a="bell" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><b class="bn" id="bn" hidden></b></button>
   </div>
+  <nav class="switch" id="switch" aria-label="Switch view" hidden>
+    <button class="on" data-v="roadmap"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M8 7.2l3 8.4M16 7.2l-3 8.4"/></svg><span>Roadmap</span></button>
+    <button data-v="docs"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg><span>Documents</span></button>
+    <button data-v="tpl"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M13.5 17h7M17 13.5v7"/></svg><span>Templates</span></button>
+  </nav>
+  <section class="view" id="docs-view" hidden></section>
+  <section class="view" id="tpl-view" hidden>
+    <div class="vhead"><div><h1>Templates</h1><p>Reusable starting points for the teams.</p></div></div>
+    <div class="soon"><div class="soon-ico"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M13.5 17h7M17 13.5v7"/></svg></div><h2>Coming soon</h2><p>This space is reserved for templates. We will decide together what goes here, for example screen specifications, review checklists and handover notes.</p></div>
+  </section>
   <div class="alerts" id="alerts" aria-live="polite"></div>
 
   <div class="caption" id="caption" aria-live="polite"></div>
@@ -65,6 +75,22 @@
   <aside class="vw-side" id="vw-side"></aside>
 </section>
 
+<!-- document preview (pages + comments) -->
+<section class="docview" id="docview" hidden></section>
+
+<!-- upload a PDF -->
+<section class="docup" id="docup" hidden>
+  <div class="docup-card" role="dialog" aria-modal="true" aria-labelledby="up-h">
+    <div class="up-head"><h2 id="up-h">Upload a PDF</h2><button class="btn ghost icon-only" data-up="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <label class="up-drop" id="up-drop" for="up-file"><svg viewBox="0 0 24 24"><path d="M12 16V5M7 10l5-5 5 5M4 20h16"/></svg><b>Choose a PDF</b><small id="up-name">No file chosen</small></label>
+    <input type="file" id="up-file" accept="application/pdf,.pdf" hidden>
+    <label class="up-f">Title<input id="up-title" type="text" maxlength="200" placeholder="e.g. Reports redesign"></label>
+    <label class="up-f">Description <span>(optional)</span><textarea id="up-desc" maxlength="400" placeholder="What is this document about?"></textarea></label>
+    <p class="login-err" id="up-err" role="alert"></p>
+    <div class="up-row"><button class="btn ghost" data-up="close">Cancel</button><button class="btn primary" id="up-go" disabled>Upload</button></div>
+  </div>
+</section>
+
 <input type="file" id="file-import" accept="application/json" hidden>
 
 <aside class="drawer" id="drawer" aria-hidden="true">
@@ -98,6 +124,7 @@
 <script src="store.js?v=14"></script>
 <script src="logos.js?v=14"></script>
 <script src="data.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="docs.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

@@ -12,6 +12,9 @@ Out of the box the app runs in **demo mode**: data stays in one browser, and the
 1. Open **SQL Editor → New query**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 2. That creates the tables, the access rules (only your two team accounts can read or write) and the private `references` image bucket.
 
+### 2b. Documents (PDF uploads), optional
+The **Documents** area ships with the three design PDFs (in `documents/`), which need no setup. To let the teams upload more PDFs, open **SQL Editor → New query**, paste [`supabase/documents.sql`](supabase/documents.sql) and **Run** it once (after `schema.sql`). It adds a `documents` table and a private `documents` bucket (PDF only, 50 MB per file). Comments on documents reuse the existing comments table.
+
 ## 3. Create the two logins
 1. **Authentication → Providers → Email**: keep it enabled. Under **Authentication → Sign In / Providers** turn **off "Allow new users to sign up"** so nobody else can register.
 2. **Authentication → Users → Add user → Create new user**. Create one account for each team (tick *Auto Confirm User*):
