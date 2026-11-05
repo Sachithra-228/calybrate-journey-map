@@ -296,8 +296,8 @@
       try { api.store.subscribe(async () => { await loadUploaded(); if (view === 'docs' && !cur) renderList(); if (window.CalTpl) CalTpl.onData(); }); } catch (e) { /* ignore */ }
     },
     onData() { if (!api) return; if (view === 'docs' && !cur) renderList(); if (cur && cur.pdf) { updateTop(); renderNav(); const ta = $('#dv-text'); renderSide(); if (ta && document.activeElement !== ta) { /* keep draft */ } } },
-    nodeName(id) { const n = parseNode(id); if (!n) return id; const d = find(n.id); return d ? `${d.title} · ${n.page ? 'page ' + n.page : 'whole document'}` : id; },
-    isDoc: (id) => !!parseNode(id),
-    openNode(id) { const n = parseNode(id); if (!n || !find(n.id)) return; setView('docs'); openDoc(n.id, n.page || 1); if (!n.page) tab = 'doc'; }
+    nodeName(id) { if (window.CalTpl && CalTpl.isNode(id)) return CalTpl.nodeName(id); const n = parseNode(id); if (!n) return id; const d = find(n.id); return d ? `${d.title} · ${n.page ? 'page ' + n.page : 'whole document'}` : id; },
+    isDoc: (id) => !!parseNode(id) || !!(window.CalTpl && CalTpl.isNode(id)),
+    openNode(id) { if (window.CalTpl && CalTpl.isNode(id)) { setView('tpl'); CalTpl.openNode(id); return; } const n = parseNode(id); if (!n || !find(n.id)) return; setView('docs'); openDoc(n.id, n.page || 1); if (!n.page) tab = 'doc'; }
   };
 })();

@@ -17,18 +17,23 @@
     left: '<path d="M15 6l-6 6 6 6"/>', trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     x: '<path d="M6 6l12 12M18 6 6 18"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>', full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     laptop: '<rect x="4.5" y="5" width="15" height="10" rx="1.6"/><path d="M2.5 19h19"/>', tablet: '<rect x="6" y="3.5" width="12" height="17" rx="2"/><path d="M11 17.5h2"/>', phone: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.3A8 8 0 1 1 21 12z"/>', warn: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
   };
   const sv = (k, c) => `<svg class="${c || 'si'}" viewBox="0 0 24 24">${IC[k]}</svg>`;
   const DEVICES = [['laptop', 'Laptop', 0], ['tablet', 'Tablet', 820], ['phone', 'Phone', 390]];
   const SUGGEST = ['Landing page', 'Dashboard', 'System admin'];
 
-  let api = null, list = [], loaded = null, cur = null, device = 'laptop', busy = false;
+  let api = null, list = [], loaded = null, cur = null, device = 'laptop', busy = false, ckind = 'comment', cscope = 'page';
   const mb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   const extOf = (p) => (p.split('.').pop() || '').toLowerCase();
   const mimeOf = (p, b) => MIME[extOf(p)] || (b && b.type) || 'application/octet-stream';
   const totalSize = (t) => (t.files || []).reduce((a, f) => a + (f.size || 0), 0);
   const isHtml = (p) => /\.html?$/i.test(p);
+  const nodeId = (id, page) => `tpl:${id}:${page || '*'}`;
+  const parseNode = (nid) => { const m = /^tpl:([^:]+):(.+)$/.exec(nid || ''); return m ? { id: m[1], page: m[2] === '*' ? '' : m[2] } : null; };
+  const comments = (nid) => api.S().comments.filter((c) => c.nodeId === nid);
+  const countFor = (id) => api.S().comments.filter((c) => c.nodeId.startsWith(`tpl:${id}:`)).length;
 
   /* ---------------- paths ---------------- */
   const norm = (p) => { const out = []; p.split('/').forEach((s) => { if (!s || s === '.') return; if (s === '..') out.pop(); else out.push(s); }); return out.join('/'); };
@@ -146,7 +151,7 @@
     return `<article class="dcard tcard" data-tpl="${api.esc(t.id)}">
       <div class="dthumb tthumb"><span class="dpdf">${sv(n ? 'code' : 'folder', 'dsvg')}<b>${n ? 'HTML' : 'EMPTY'}</b></span></div>
       <div class="dbody"><h3>${api.esc(t.title)}</h3><p>${api.esc(t.desc || (n ? 'Open the live preview.' : 'No files yet. Upload the page folder to see it live.'))}</p>
-        <div class="dmeta">${n ? `<span>${n} file${n > 1 ? 's' : ''}</span><span>${mb(totalSize(t))}</span>` : '<span>Waiting for upload</span>'}<span>${api.teamBadge(t.team)} ${api.esc(t.name || '')} · ${api.ago(t.ts)}</span></div>
+        <div class="dmeta">${n ? `<span>${n} file${n > 1 ? 's' : ''}</span><span>${mb(totalSize(t))}</span>` : '<span>Waiting for upload</span>'}${countFor(t.id) ? `<span>${countFor(t.id)} comment${countFor(t.id) > 1 ? 's' : ''}</span>` : ''}<span>${api.teamBadge(t.team)} ${api.esc(t.name || '')} · ${api.ago(t.ts)}</span></div>
         <div class="dact"><button class="btn primary" data-tp="open" data-id="${api.esc(t.id)}">${sv(n ? 'eye' : 'up')} ${n ? 'Live preview' : 'Upload files'}</button>${canDelete(t) ? `<button class="btn ghost icon-only danger-t" data-tp="delete" data-id="${api.esc(t.id)}" title="Delete this template" aria-label="Delete">${sv('trash')}</button>` : ''}</div></div></article>`;
   }
   function renderList() {
@@ -231,10 +236,11 @@
         ${pages.length > 1 ? `<select id="tp-page" aria-label="Page">${pages.map((p) => `<option value="${api.esc(p)}"${p === cur.entry ? ' selected' : ''}>${api.esc(p)}</option>`).join('')}</select>` : `<span class="tp-file">${api.esc(cur.entry)}</span>`}
         <button class="btn ghost" data-tp="reload">${sv('refresh')}<span class="hide-m">Reload</span></button>
         <button class="btn ghost" data-tp="full">${sv('full')}<span class="hide-m">Full screen</span></button>
+        <button class="btn ghost" data-tp="cside" id="tp-cbtn">${sv('chat')}<span>Comments</span><b class="tp-cn" id="tp-cn" hidden></b></button>
         <label class="btn ghost" for="tp-folder" title="Upload a new version of the folder">${sv('up')}<span>Replace folder</span></label></div>
       <p class="login-err tp-err" id="tp-err" role="alert"></p>
-      <div class="tp-stage" id="tp-stage"><iframe id="tp-frame" class="tp-frame" title="Live preview of ${api.esc(t.title)}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe></div>`;
-    sizeFrame();
+      <div class="tp-main"><div class="tp-stage" id="tp-stage"><iframe id="tp-frame" class="tp-frame" title="Live preview of ${api.esc(t.title)}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe></div><aside class="tp-side${cur.side ? ' open' : ''}" id="tp-side"></aside></div>`;
+    sizeFrame(); renderSide();
   }
   function sizeFrame() {
     const f = $('#tp-frame'); if (!f) return;
@@ -245,6 +251,27 @@
     const f = $('#tp-frame'); if (!f || !cur || !cur.ctx) return;
     try { f.srcdoc = buildPage(cur.ctx, cur.entry); } catch (e) { shell(null, 'Could not build the preview: ' + (e.message || e)); }
   }
+  /* comments on the page being previewed, or on the whole template */
+  function renderSide() {
+    const side = $('#tp-side'); if (!side || !cur) return;
+    const page = cscope === 'all' ? '' : cur.entry, nid = nodeId(cur.t.id, page), items = comments(nid), keep = ($('#tp-text') || {}).value || '';
+    const nPage = comments(nodeId(cur.t.id, cur.entry)).length, nAll = comments(nodeId(cur.t.id, '')).length;
+    const cn = $('#tp-cn'); if (cn) { const n = countFor(cur.t.id); cn.textContent = n || ''; cn.hidden = !n; }
+    side.innerHTML = `<div class="tp-sh"><div class="tp-tabs"><button data-tp="cscope" data-s="page" class="${cscope === 'page' ? 'on' : ''}">This page${nPage ? ` <b>${nPage}</b>` : ''}</button><button data-tp="cscope" data-s="all" class="${cscope === 'all' ? 'on' : ''}">Whole template${nAll ? ` <b>${nAll}</b>` : ''}</button></div><button class="btn ghost icon-only tp-x" data-tp="cside" aria-label="Close comments">${sv('x')}</button></div>
+      <div class="tp-ctx">${sv('chat')}<span>${cscope === 'all' ? 'Comments on the whole template' : api.esc(cur.entry)}</span></div>
+      <div class="thread">${items.map(api.msgHtml).join('') || `<div class="empty">${cscope === 'all' ? 'No comments on the whole template yet.' : 'No comments on this page yet. Say what you think, or ask the other team a question.'}</div>`}</div>
+      <div class="kindseg"><button data-tp="ckind" data-k="comment" class="${ckind === 'comment' ? 'on' : ''}">${api.si('chat')} Comment</button><button data-tp="ckind" data-k="issue" class="${ckind === 'issue' ? 'on bad' : ''}">${api.si('warn')} Raise an issue</button></div>
+      <textarea id="tp-text" placeholder="${ckind === 'issue' ? 'Describe the issue so the other team can act on it...' : 'Write a comment on ' + (cscope === 'all' ? 'this template' : api.esc(cur.entry)) + '...'}">${api.esc(keep)}</textarea>
+      <div class="post-row"><span>Ctrl + Enter to send</span><button class="btn primary" data-tp="cpost">${ckind === 'issue' ? 'Raise issue' : 'Send'}</button></div>`;
+    api.markNodeSeen(nid);
+  }
+  async function postComment() {
+    const ta = $('#tp-text'); if (!ta || !cur) return; const v = ta.value.trim(); if (!v) { ta.focus(); return; }
+    const nid = nodeId(cur.t.id, cscope === 'all' ? '' : cur.entry), k = ckind, btn = $('[data-tp="cpost"]'); if (btn) btn.disabled = true;
+    await api.guard(async () => { await api.store.addComment(api.profile(), { nodeId: nid, body: v, kind: k }); ta.value = ''; ckind = 'comment'; await api.reload(); api.toast(k === 'issue' ? 'Issue raised' : 'Comment sent'); });
+    if (cur) renderSide();
+  }
+
   async function upload(items) {
     if (!cur || busy) return;
     const rows = clean(items), msg = check(rows), err = $('#tp-err');
@@ -280,25 +307,32 @@
     else if (a === 'back') close();
     else if (a === 'dev') { device = b.dataset.d; $$('.tp-dev button').forEach((x) => x.classList.toggle('on', x.dataset.d === device)); sizeFrame(); }
     else if (a === 'reload') paint();
+    else if (a === 'cside') { cur.side = !cur.side; const sd = $('#tp-side'); if (sd) sd.classList.toggle('open', cur.side); }
+    else if (a === 'cscope') { cscope = b.dataset.s; renderSide(); }
+    else if (a === 'ckind') { ckind = b.dataset.k; renderSide(); const ta = $('#tp-text'); if (ta) ta.focus(); }
+    else if (a === 'cpost') postComment();
     else if (a === 'full') { const f = $('#tp-frame'); if (f && f.requestFullscreen) f.requestFullscreen().catch(() => {}); }
   });
   document.addEventListener('change', (e) => {
     if (!api) return;
     if (e.target.id === 'tp-folder' || e.target.id === 'tp-files') { const items = fromInput(e.target.files); e.target.value = ''; upload(items); }
-    else if (e.target.id === 'tp-page' && cur) { cur.entry = e.target.value; paint(); }
+    else if (e.target.id === 'tp-page' && cur) { cur.entry = e.target.value; paint(); renderSide(); }
   });
   window.addEventListener('message', (e) => {
     const f = $('#tp-frame');
     if (!f || e.source !== f.contentWindow || !e.data || typeof e.data.tplGo !== 'string' || !cur || !cur.ctx) return;
     const rp = cur.ctx.get(e.data.tplGo); if (!rp) return;
-    cur.entry = rp; const s = $('#tp-page'); if (s) s.value = rp; paint();
+    cur.entry = rp; const s = $('#tp-page'); if (s) s.value = rp; paint(); renderSide();
   });
   document.addEventListener('keydown', (e) => {
     if (!api || e.key !== 'Escape' || $('#tpl-view').hidden) return;
     if (!$('#tpldlg').hidden) { e.stopImmediatePropagation(); $('#tpldlg').hidden = true; return; }
     if (cur) { e.stopImmediatePropagation(); close(); }
   }, true);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'tn-title') { e.preventDefault(); create(); } });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'tn-title') { e.preventDefault(); create(); }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'tp-text') { e.preventDefault(); postComment(); }
+  });
   ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
     const z = $('#tp-drop'); if (!api || !z || !cur || $('#tpl-view').hidden || !e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
     e.preventDefault(); z.classList.add('over');
@@ -322,6 +356,13 @@
       loaded = refresh();
     },
     show, open, hide() { if (cur) { revoke(cur.ctx); cur = null; } const d = $('#tpldlg'); if (d) d.hidden = true; },
-    onData() { if (api) refresh(); }
+    onData() { if (!api) return; if (cur) renderSide(); refresh(); },
+    isNode: (id) => !!parseNode(id),
+    nodeName(id) { const n = parseNode(id), t = n && list.find((x) => x.id === n.id); return t ? `${t.title} · ${n.page || 'whole template'}` : id; },
+    async openNode(id) {
+      const n = parseNode(id); if (!n) return; await open(n.id); if (!cur) return;
+      if (n.page && cur.ctx && cur.ctx.get(n.page)) { cur.entry = n.page; cscope = 'page'; paint(); const s = $('#tp-page'); if (s) s.value = n.page; } else cscope = 'all';
+      cur.side = true; const sd = $('#tp-side'); if (sd) sd.classList.add('open'); renderSide();
+    }
   };
 })();
