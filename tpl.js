@@ -18,6 +18,7 @@
     x: '<path d="M6 6l12 12M18 6 6 18"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>', full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     laptop: '<rect x="4.5" y="5" width="15" height="10" rx="1.6"/><path d="M2.5 19h19"/>', tablet: '<rect x="6" y="3.5" width="12" height="17" rx="2"/><path d="M11 17.5h2"/>', phone: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>',
     chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.3A8 8 0 1 1 21 12z"/>', warn: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>',
+    dl: '<path d="M12 4v11M7 10l5 5 5-5M4 20h16"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
   };
   const sv = (k, c) => `<svg class="${c || 'si'}" viewBox="0 0 24 24">${IC[k]}</svg>`;
@@ -144,15 +145,74 @@
     return '';
   }
 
+  /* ---------------- download as a zip (no library: files are stored, not compressed) ---------------- */
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = (u8) => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  async function makeZip(files, root) {
+    const enc = new TextEncoder(), parts = [], central = []; let offset = 0, count = 0;
+    for (const [path, blob] of files) {
+      const data = new Uint8Array(await blob.arrayBuffer()), name = enc.encode((root ? root + '/' : '') + path), crc = crc32(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, 0, true); lh.setUint16(12, 33, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(lh, name, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 33, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+      central.push(ch, name); offset += 30 + name.length + data.length; count++;
+    }
+    const csize = central.reduce((a, p) => a + (p.byteLength !== undefined ? p.byteLength : p.length), 0), end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, count, true); end.setUint16(10, count, true); end.setUint32(12, csize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+  const slug = (s) => String(s || 'template').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template';
+  async function downloadTpl(id) {
+    const t = list.find((x) => x.id === id); if (!t || !(t.files || []).length) { api.toast('Nothing to download yet. Upload the folder first.'); return; }
+    api.toast('Preparing the zip…');
+    try {
+      const files = cur && cur.t.id === id && cur.ctx ? cur.ctx.files : await api.store.tplFiles(t);
+      const blob = await makeZip(files, slug(t.title)), url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = slug(t.title) + '.zip'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+      api.toast(`Downloaded ${slug(t.title)}.zip (${files.size} files)`);
+    } catch (e) { api.toast('Could not download: ' + (e.message || e)); }
+  }
+
+  /* ---------------- card thumbnails: a tiny live render of the first page ---------------- */
+  const thumbCache = {};
+  let thumbIO = null;
+  const thumbKey = (t) => `${t.id}:${t.entry}:${(t.files || []).length}:${totalSize(t)}`;
+  function showThumb(el, html) {
+    const f = document.createElement('iframe'); f.className = 'tt-frame'; f.setAttribute('sandbox', 'allow-scripts'); f.name = 'cal-thumb'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.setAttribute('loading', 'lazy');
+    f.srcdoc = html; el.appendChild(f); el.classList.add('has-img'); fitThumb(el);
+  }
+  function fitThumb(el) { const f = $('.tt-frame', el); if (f) f.style.transform = `scale(${(el.clientWidth || 360) / 1280})`; }
+  async function drawThumb(el) {
+    const t = list.find((x) => x.id === el.dataset.tid); if (!t || !(t.files || []).length) return;
+    const key = thumbKey(t);
+    try {
+      if (!thumbCache[key]) {
+        const files = await api.store.tplFiles(t), ctx = await makeCtx(files), entry = ctx.get(t.entry) || pickEntry([...files.keys()]);
+        thumbCache[key] = buildPage(ctx, entry);
+      }
+      showThumb(el, thumbCache[key]);
+    } catch (e) { /* keep the icon */ }
+  }
+  function thumbs() {
+    if (thumbIO) thumbIO.disconnect();
+    thumbIO = new IntersectionObserver((es) => es.forEach((en) => { if (en.isIntersecting) { thumbIO.unobserve(en.target); drawThumb(en.target); } }), { rootMargin: '150px' });
+    $$('#tpl-view .tthumb[data-tid]').forEach((el) => { const t = list.find((x) => x.id === el.dataset.tid); if (t && thumbCache[thumbKey(t)]) showThumb(el, thumbCache[thumbKey(t)]); else thumbIO.observe(el); });
+  }
+  window.addEventListener('resize', () => $$('#tpl-view .tthumb.has-img').forEach(fitThumb));
+
   /* ---------------- list ---------------- */
   const canDelete = (t) => api.profile() && t.uploaderId === api.profile().id;
   function card(t) {
     const n = (t.files || []).length;
     return `<article class="dcard tcard" data-tpl="${api.esc(t.id)}">
-      <div class="dthumb tthumb"><span class="dpdf">${sv(n ? 'code' : 'folder', 'dsvg')}<b>${n ? 'HTML' : 'EMPTY'}</b></span></div>
+      <div class="dthumb tthumb" data-tid="${api.esc(t.id)}"><span class="dpdf">${sv(n ? 'code' : 'folder', 'dsvg')}<b>${n ? 'HTML' : 'EMPTY'}</b></span></div>
       <div class="dbody"><h3>${api.esc(t.title)}</h3><p>${api.esc(t.desc || (n ? 'Open the live preview.' : 'No files yet. Upload the page folder to see it live.'))}</p>
         <div class="dmeta">${n ? `<span>${n} file${n > 1 ? 's' : ''}</span><span>${mb(totalSize(t))}</span>` : '<span>Waiting for upload</span>'}${countFor(t.id) ? `<span>${countFor(t.id)} comment${countFor(t.id) > 1 ? 's' : ''}</span>` : ''}<span>${api.teamBadge(t.team)} ${api.esc(t.name || '')} · ${api.ago(t.ts)}</span></div>
-        <div class="dact"><button class="btn primary" data-tp="open" data-id="${api.esc(t.id)}">${sv(n ? 'eye' : 'up')} ${n ? 'Live preview' : 'Upload files'}</button>${canDelete(t) ? `<button class="btn ghost icon-only danger-t" data-tp="delete" data-id="${api.esc(t.id)}" title="Delete this template" aria-label="Delete">${sv('trash')}</button>` : ''}</div></div></article>`;
+        <div class="dact"><button class="btn primary" data-tp="open" data-id="${api.esc(t.id)}">${sv(n ? 'eye' : 'up')} ${n ? 'Live preview' : 'Upload files'}</button>${n ? `<button class="btn ghost" data-tp="dl" data-id="${api.esc(t.id)}">${sv('dl')} Download</button>` : ''}${canDelete(t) ? `<button class="btn ghost icon-only danger-t" data-tp="delete" data-id="${api.esc(t.id)}" title="Delete this template" aria-label="Delete">${sv('trash')}</button>` : ''}</div></div></article>`;
   }
   function renderList() {
     const v = $('#tpl-view'); v.classList.remove('tdetail'); v.scrollTop = 0;
@@ -160,6 +220,7 @@
       <div class="vact"><button class="btn primary" data-tp="new">${sv('plus')} New template</button></div></div>
       <div class="dgrid">${list.map(card).join('')}
         <button class="dcard dadd" data-tp="new"><span class="dplus">${sv('plus', 'dsvg')}</span><b>New template</b><small>${list.length ? 'for another page' : 'start with the landing page'}</small></button></div>`;
+    thumbs();
   }
   async function refresh() {
     try { list = await api.store.listTpls(); } catch (e) { list = []; }
@@ -236,6 +297,7 @@
         ${pages.length > 1 ? `<select id="tp-page" aria-label="Page">${pages.map((p) => `<option value="${api.esc(p)}"${p === cur.entry ? ' selected' : ''}>${api.esc(p)}</option>`).join('')}</select>` : `<span class="tp-file">${api.esc(cur.entry)}</span>`}
         <button class="btn ghost" data-tp="reload">${sv('refresh')}<span class="hide-m">Reload</span></button>
         <button class="btn ghost" data-tp="full">${sv('full')}<span class="hide-m">Full screen</span></button>
+        <button class="btn ghost" data-tp="dl" data-id="${api.esc(t.id)}">${sv('dl')}<span class="hide-m">Download</span></button>
         <button class="btn ghost" data-tp="cside" id="tp-cbtn">${sv('chat')}<span>Comments</span><b class="tp-cn" id="tp-cn" hidden></b></button>
         <label class="btn ghost" for="tp-folder" title="Upload a new version of the folder">${sv('up')}<span>Replace folder</span></label></div>
       <p class="login-err tp-err" id="tp-err" role="alert"></p>
@@ -307,6 +369,7 @@
     else if (a === 'back') close();
     else if (a === 'dev') { device = b.dataset.d; $$('.tp-dev button').forEach((x) => x.classList.toggle('on', x.dataset.d === device)); sizeFrame(); }
     else if (a === 'reload') paint();
+    else if (a === 'dl') downloadTpl(b.dataset.id);
     else if (a === 'cside') { cur.side = !cur.side; const sd = $('#tp-side'); if (sd) sd.classList.toggle('open', cur.side); }
     else if (a === 'cscope') { cscope = b.dataset.s; renderSide(); }
     else if (a === 'ckind') { ckind = b.dataset.k; renderSide(); const ta = $('#tp-text'); if (ta) ta.focus(); }

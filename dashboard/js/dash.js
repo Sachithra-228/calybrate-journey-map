@@ -483,7 +483,7 @@
     document.body.insertAdjacentHTML('beforeend', '<div id="root"></div><div class="scrim" id="scrim"></div><div class="modal" id="modal" role="dialog" aria-modal="true"></div><aside class="drawer" id="drawer"></aside><div class="wiz" id="wiz"></div><div class="scrim" id="tourdim" style="z-index:99"></div><div class="spot" id="spot"></div><div class="tip" id="tip"></div><div class="toast" id="toast" role="status"></div>');
     modalEl = $('#modal'); scrim = $('#scrim'); drawerEl = $('#drawer'); toastEl = $('#toast');
     render();
-    setTimeout(function () { if (!S.toured) { S.toured = true; setTour(0); } }, 500);
+    setTimeout(function () { if (!S.toured && window.name !== 'cal-thumb') { S.toured = true; setTour(0); } }, 500);
   }
   boot();
 })();

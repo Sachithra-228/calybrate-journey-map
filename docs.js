@@ -55,7 +55,7 @@
   function card(d) {
     const cc = commentCount(d.id), oi = openIssues(d.id), mine = !d.builtin && api.profile() && d.uploaderId === api.profile().id;
     return `<article class="dcard" data-doc="${api.esc(d.id)}">
-      <div class="dthumb"><span class="dpdf">${sv('doc', 'dsvg')}<b>PDF</b></span>${d.tag ? `<span class="dtag">${api.esc(d.tag)}</span>` : ''}</div>
+      <div class="dthumb" data-thumb="${api.esc(d.id)}"><span class="dpdf">${sv('doc', 'dsvg')}<b>PDF</b></span>${d.tag ? `<span class="dtag">${api.esc(d.tag)}</span>` : ''}</div>
       <div class="dbody"><h3>${api.esc(d.title)}</h3><p>${api.esc(d.desc || 'No description.')}</p>
         <div class="dmeta">${d.pages ? `<span>${d.pages} pages</span>` : ''}<span>${mb(d.size)}</span>${d.builtin ? '<span>Built in</span>' : `<span>${api.teamBadge(d.team)} ${api.esc(d.name || '')} · ${api.ago(d.ts)}</span>`}</div>
         <div class="dact"><button class="btn primary" data-da="open" data-id="${api.esc(d.id)}">${sv('eye')} Preview</button><button class="btn ghost" data-da="download" data-id="${api.esc(d.id)}">${sv('dl')} Download</button>
@@ -68,6 +68,25 @@
       <div class="vact"><button class="btn primary" data-da="upload">${sv('up')} Upload PDF</button></div></div>
       <div class="dgrid">${allDocs().map(card).join('')}
         <button class="dcard dadd" data-da="upload"><span class="dplus">${sv('plus', 'dsvg')}</span><b>Upload a PDF</b><small>or drop a file here</small></button></div>`;
+    thumbs();
+  }
+  /* first-page picture on each card, drawn once with pdf.js when the card scrolls into view */
+  const thumbCache = {};
+  let thumbIO = null;
+  function applyThumb(el, url) { el.classList.add('has-img'); el.style.backgroundImage = `url(${url})`; }
+  async function drawThumb(el) {
+    const d = find(el.dataset.thumb); if (!d) return;
+    try {
+      const lib = await loadPdfJs(), url = await urlFor(d), pdf = await lib.getDocument({ url, rangeChunkSize: 131072, disableAutoFetch: true }).promise, page = await pdf.getPage(1);
+      const v0 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 640 / v0.width }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      const img = c.toDataURL('image/jpeg', 0.82); thumbCache[d.id] = img; applyThumb(el, img); try { pdf.destroy(); } catch (e) { /* ignore */ }
+    } catch (e) { /* keep the icon */ }
+  }
+  function thumbs() {
+    if (thumbIO) thumbIO.disconnect();
+    thumbIO = new IntersectionObserver((es) => es.forEach((en) => { if (en.isIntersecting) { thumbIO.unobserve(en.target); drawThumb(en.target); } }), { rootMargin: '150px' });
+    $$('#docs-view .dthumb[data-thumb]').forEach((el) => { const id = el.dataset.thumb; if (thumbCache[id]) applyThumb(el, thumbCache[id]); else thumbIO.observe(el); });
   }
   async function loadUploaded() { try { uploaded = await api.store.listDocs(); } catch (e) { uploaded = []; } }
 
