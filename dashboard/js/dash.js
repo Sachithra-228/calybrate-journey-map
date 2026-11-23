@@ -25,6 +25,9 @@
     lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', trend: '<path d="M4 17l5-5 4 4 7-8M15 8h5v5"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', org: '<path d="M12 4v5M5 20v-5h14v5M12 9H5v6M12 9h7v6"/>',
     layers: '<path d="M12 3 3 8l9 5 9-5zM3 13l9 5 9-5"/>', doc: '<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>', save: '<path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6"/>', msg: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.3A8 8 0 1 1 21 12z"/>',
     star: '<path d="M12 4l2.4 5 5.6.8-4 4 1 5.6-5-2.7-5 2.7 1-5.6-4-4 5.6-.8z"/>', send: '<path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/>', grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+    spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>', shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+    eyeoff: '<path d="M3 3l18 18M10.6 6.2A9.9 9.9 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.8M6.3 7.6C3.6 9.4 2 12 2 12s4 7 10 7c1.4 0 2.7-.3 3.8-.8"/>',
     list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>', pin: '<path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'
   };
   var ic = function (k, c) { return '<svg class="' + (c || 'si') + '" viewBox="0 0 24 24" aria-hidden="true">' + (IC[k] || '') + '</svg>'; };
@@ -81,6 +84,14 @@
   var cap = function (s) { return s.charAt(0).toUpperCase() + s.slice(1); };
   var avatar = function (n, d) { var p = String(n).split(' '); return '<span class="av' + (d ? ' d' : '') + '">' + esc((p[0][0] || '') + (p[1] ? p[1][0] : '')) + '</span>'; };
 
+  /* ---------- profile (name, role, photo). The photo is kept in this browser only. ---------- */
+  var PKEY = 'calybrate-dash-profile';
+  var PROF = { name: 'Testing Owner', email: 'owner@testing-company.com', org: 'Testing Company', photo: '' };
+  try { var sv = JSON.parse(localStorage.getItem(PKEY) || '{}'); if (sv.photo) PROF.photo = sv.photo; } catch (e) { /* ignore */ }
+  var saveProf = function () { try { localStorage.setItem(PKEY, JSON.stringify({ photo: PROF.photo })); } catch (e) { /* ignore */ } };
+  var initials = function (n) { var p = String(n).split(' '); return ((p[0][0] || '') + (p[1] ? p[1][0] : '')).toUpperCase(); };
+  var profPct = function () { return PROF.photo ? 100 : 75; };
+
   /* ---------- small pieces ---------- */
   function ring(p, size, sw) {
     var r = (size - sw) / 2, c = 2 * Math.PI * r;
@@ -106,8 +117,19 @@
   /* ---------- shell ---------- */
   var NAV = [['dashboard', 'Dashboard', 'dash'], ['campaigns', 'Campaigns', 'camp'], ['reports', 'Reports', 'rep'], ['users', 'Users', 'users']];
   function chip() {
-    return '<div class="chipwrap"><button class="me" data-a="menu" data-tour="chip" aria-haspopup="true">' + avatar('Testing Company', true).replace('av d', 'av') + '<span><b>Testing Company</b><small>' + (isSuper() ? ic('crown', 'si') + ' Super Admin' : ic('user', 'si') + ' Admin') + '</small></span>' + ic('down') + '</button>' +
-      '<div class="menu" id="menu"><h6>Preview as</h6><button data-a="role" data-r="super" class="' + (isSuper() ? 'on' : '') + '">' + ic('crown') + ' Super Admin' + ic('check') + '</button><button data-a="role" data-r="admin" class="' + (!isSuper() ? 'on' : '') + '">' + ic('user') + ' Admin' + ic('check') + '</button></div></div>';
+    var role = isSuper() ? '<span class="pm-role super">' + ic('crown', 'si') + ' Super Admin</span>' : '<span class="pm-role">' + ic('user', 'si') + ' Admin</span>';
+    var face = PROF.photo ? '<img src="' + PROF.photo + '" alt="">' : esc(initials(PROF.name));
+    return '<div class="chipwrap"><button class="me" data-a="menu" data-tour="chip" aria-haspopup="true" aria-label="Open profile menu"><span class="av ' + (PROF.photo ? 'has' : 'd') + ' aura">' + face + '</span><span><b>' + esc(PROF.name) + '</b><small>' + (isSuper() ? ic('crown', 'si') + ' Super Admin' : ic('user', 'si') + ' Admin') + '</small></span>' + ic('down') + '</button>' +
+      '<div class="menu pm" id="menu" role="menu">' +
+      '<div class="pm-hero"><svg class="pm-mesh" viewBox="0 0 320 150" aria-hidden="true"><g stroke="rgba(255,255,255,.28)" stroke-width="1" fill="none"><path d="M0 110L60 70 120 96 190 44 260 82 320 36"/><path d="M0 40L70 20 130 50 200 14 270 40 320 16"/><path d="M40 150L90 112 150 130 220 96 290 126"/></g><g fill="rgba(255,255,255,.7)"><circle cx="60" cy="70" r="2.4"/><circle cx="190" cy="44" r="2.4"/><circle cx="130" cy="50" r="2"/><circle cx="260" cy="82" r="2.4"/><circle cx="150" cy="130" r="2"/></g></svg><i class="pm-orb a"></i><i class="pm-orb b"></i>' +
+      '<div class="pm-avwrap" data-a="photo" tabindex="0" role="button" aria-label="Change profile photo"><span class="pm-ring"></span><span class="pm-av ' + (PROF.photo ? 'has' : '') + '">' + face + '</span><span class="pm-cam">' + ic('camera') + '</span><span class="pm-drop">Drop photo</span></div>' +
+      '<div class="pm-id"><b>' + esc(PROF.name) + '</b><small>' + esc(PROF.email) + '</small></div><div class="pm-tags">' + role + '<span class="pm-org">' + ic('org', 'si') + ' ' + esc(PROF.org) + '</span></div></div>' +
+      '<div class="pm-body"><div class="pm-nudge' + (PROF.photo ? ' done' : '') + '">' + ic(PROF.photo ? 'shield' : 'spark', 'si') + '<div><b>' + (PROF.photo ? 'Profile complete' : 'Profile ' + profPct() + '% complete') + '</b><span>' + (PROF.photo ? 'Your team will recognise you.' : 'Add a photo so your team recognises you.') + '</span><div class="pm-meter"><i style="width:' + profPct() + '%"></i></div></div></div>' +
+      '<button class="pm-item" role="menuitem" data-a="photo"><span class="pm-t">' + ic('camera') + '</span><span class="pm-tx"><b>' + (PROF.photo ? 'Change photo' : 'Upload photo') + '</b><small>JPG or PNG, up to 5 MB</small></span>' + ic('right', 'si pm-ch') + '</button>' +
+      '<button class="pm-item" role="menuitem" data-a="pwd"><span class="pm-t">' + ic('key') + '</span><span class="pm-tx"><b>Update password</b><small>Keep your account secure</small></span>' + ic('right', 'si pm-ch') + '</button>' +
+      '<div class="pm-prev"><h6>Preview as</h6><div class="pm-seg"><button data-a="role" data-r="super" class="' + (isSuper() ? 'on' : '') + '">' + ic('crown') + ' Super Admin</button><button data-a="role" data-r="admin" class="' + (!isSuper() ? 'on' : '') + '">' + ic('user') + ' Admin</button></div></div>' +
+      '<button class="pm-item out" role="menuitem" data-a="logout"><span class="pm-t">' + ic('logout') + '</span><span class="pm-tx"><b>Log out</b><small>End this session</small></span></button>' +
+      '<input type="file" id="pfile" accept="image/*" hidden></div></div></div>';
   }
   function layout(title, sub, body, extra) {
     var navB = NAV.map(function (n) { return '<button class="' + (S.page === n[0] ? 'on' : '') + '" data-a="nav" data-p="' + n[0] + '" data-tour="' + n[0] + '">' + ic(n[2]) + n[1] + '</button>'; }).join('');
@@ -268,11 +290,95 @@
   /* ---------- modals, drawers, toast ---------- */
   var modalEl, scrim, drawerEl, toastEl;
   function openModal(html) { modalEl.innerHTML = html; modalEl.classList.add('open'); scrim.classList.add('open'); var f = $('input,select', modalEl); if (f) setTimeout(function () { f.focus(); }, 50); }
-  function closeModal() { modalEl.classList.remove('open'); drawerEl.classList.remove('open'); if (!(W && W.open)) scrim.classList.remove('open'); if (W && W.open) scrim.classList.remove('open'); }
+  function closeModal() { modalEl.classList.remove('open', 'cropm'); drawerEl.classList.remove('open'); if (!(W && W.open)) scrim.classList.remove('open'); if (W && W.open) scrim.classList.remove('open'); }
   function openDrawer(html) { drawerEl.innerHTML = html; drawerEl.classList.add('open'); scrim.classList.add('open'); }
   var tt;
   function toast(m) { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(tt); tt = setTimeout(function () { toastEl.classList.remove('show'); }, 2200); }
   var xBtn = '<button class="x" data-a="closem" aria-label="Close">' + ic('x') + '</button>';
+
+  /* ----- profile photo: choose, reposition / zoom in a circle, save ----- */
+  var CR = null;
+  function takePhoto(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { toast('Please choose an image file'); return; }
+    if (file.size > 5 * 1024 * 1024) { toast('Please choose an image under 5 MB'); return; }
+    var rd = new FileReader();
+    rd.onload = function () {
+      var im = new Image();
+      im.onload = function () { openCrop(im); };
+      im.onerror = function () { toast('That image could not be read'); };
+      im.src = rd.result;
+    };
+    rd.readAsDataURL(file);
+  }
+  function openCrop(im) {
+    var N = 280, base = N / Math.min(im.width, im.height);
+    CR = { im: im, N: N, base: base, z: 1, x: (N - im.width * base) / 2, y: (N - im.height * base) / 2 };
+    openModal(xBtn + '<h2>Adjust your photo</h2><p class="lead" style="margin-top:6px">Drag to reposition and use the slider to zoom.</p>' +
+      '<div class="crop" id="crop"><canvas id="cv" width="' + N + '" height="' + N + '"></canvas></div>' +
+      '<div class="zoomrow">' + ic('layers') + '<input type="range" id="zoom" min="1" max="3" step="0.01" value="1" aria-label="Zoom"></div>' +
+      '<div class="acts">' + (PROF.photo ? '<button class="btn red" data-a="rmphoto">Remove photo</button>' : '') + '<button class="btn ghost" data-a="closem">Cancel</button><button class="btn" data-a="savephoto">' + ic('check') + ' Save photo</button></div>');
+    modalEl.classList.add('cropm');
+    drawCrop();
+    var cv = $('#cv'), drag = null;
+    cv.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, ox: CR.x, oy: CR.y }; cv.setPointerCapture(e.pointerId); cv.classList.add('grab'); });
+    cv.addEventListener('pointermove', function (e) { if (!drag) return; CR.x = drag.ox + e.clientX - drag.x; CR.y = drag.oy + e.clientY - drag.y; drawCrop(); });
+    cv.addEventListener('pointerup', function () { drag = null; cv.classList.remove('grab'); });
+    $('#zoom').addEventListener('input', function (e) {
+      var nz = +e.target.value, k0 = CR.base * CR.z, k1 = CR.base * nz, c = CR.N / 2;
+      CR.x = c - (c - CR.x) * (k1 / k0); CR.y = c - (c - CR.y) * (k1 / k0); CR.z = nz; drawCrop();
+    });
+  }
+  function drawCrop() {
+    var cv = $('#cv'); if (!cv || !CR) return;
+    var k = CR.base * CR.z, w = CR.im.width * k, h = CR.im.height * k;
+    CR.x = Math.min(0, Math.max(CR.N - w, CR.x)); CR.y = Math.min(0, Math.max(CR.N - h, CR.y));
+    var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, CR.N, CR.N); g.drawImage(CR.im, CR.x, CR.y, w, h);
+  }
+  function saveCrop() {
+    if (!CR) return;
+    var out = document.createElement('canvas'); out.width = out.height = 256;
+    var k = CR.base * CR.z * (256 / CR.N), g = out.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 256, 256); g.drawImage(CR.im, CR.x * 256 / CR.N, CR.y * 256 / CR.N, CR.im.width * k, CR.im.height * k);
+    PROF.photo = out.toDataURL('image/jpeg', 0.88); saveProf(); CR = null; closeModal(); render(true); toast('Profile photo updated');
+  }
+
+  /* ----- update password ----- */
+  function openPwd() {
+    var eye = function (f) { return '<button type="button" class="pweye" data-a="pweye" data-f="' + f + '" aria-label="Show or hide password">' + ic('eye') + '</button>'; };
+    openModal(xBtn + '<h2>Update password</h2><p class="lead" style="margin-top:6px">Choose a strong password you do not use anywhere else.</p>' +
+      '<div class="pwform"><label>Current password<span class="pwf"><input type="password" id="pw0" autocomplete="current-password">' + eye('pw0') + '</span></label>' +
+      '<label>New password<span class="pwf"><input type="password" id="pw1" autocomplete="new-password">' + eye('pw1') + '</span></label>' +
+      '<div class="pwmeter" id="pwmeter"><i></i><i></i><i></i><i></i></div><div class="pwtxt" id="pwtxt">Enter a new password</div>' +
+      '<ul class="pwreq" id="pwreq"><li data-r="len">8 or more characters</li><li data-r="mix">Upper and lower case letters</li><li data-r="num">A number</li><li data-r="sym">A symbol</li></ul>' +
+      '<label>Confirm new password<span class="pwf"><input type="password" id="pw2" autocomplete="new-password">' + eye('pw2') + '</span></label><div class="pwtxt" id="pwmatch"></div></div>' +
+      '<div class="acts"><button class="btn ghost" data-a="closem">Cancel</button><button class="btn off" id="pwsave" data-a="pwsave">' + ic('lock') + ' Update password</button></div>');
+  }
+  function pwCheck() {
+    var a = $('#pw0'), n = $('#pw1'), c = $('#pw2'); if (!a || !n || !c) return;
+    var v = n.value, ok = { len: v.length >= 8, mix: /[a-z]/.test(v) && /[A-Z]/.test(v), num: /\d/.test(v), sym: /[^A-Za-z0-9]/.test(v) };
+    var score = Object.keys(ok).filter(function (k) { return ok[k]; }).length;
+    $$('#pwreq li').forEach(function (li) { li.classList.toggle('on', !!ok[li.dataset.r]); });
+    $$('#pwmeter i').forEach(function (b, i) { b.className = i < score ? 's' + score : ''; });
+    $('#pwtxt').textContent = !v ? 'Enter a new password' : ['', 'Weak', 'Fair', 'Good', 'Strong'][score];
+    var same = v && v === c.value; $('#pwmatch').textContent = c.value ? (same ? 'Passwords match' : 'Passwords do not match') : ''; $('#pwmatch').className = 'pwtxt ' + (c.value ? (same ? 'good' : 'bad') : '');
+    $('#pwsave').classList.toggle('off', !(a.value && score >= 3 && ok.len && same));
+  }
+  document.addEventListener('input', function (e) { if (/^pw[012]$/.test(e.target.id || '')) pwCheck(); });
+  document.addEventListener('change', function (e) { if (e.target.id === 'pfile') { takePhoto(e.target.files[0]); e.target.value = ''; } });
+  ['dragover', 'drop'].forEach(function (t) {
+    document.addEventListener(t, function (e) {
+      var z = e.target.closest && e.target.closest('.pm-avwrap'); if (!z) return;
+      e.preventDefault();
+      if (t === 'dragover') z.classList.add('drag');
+      else { z.classList.remove('drag'); takePhoto(e.dataTransfer.files[0]); }
+    });
+  });
+  document.addEventListener('dragleave', function (e) { var z = e.target.closest && e.target.closest('.pm-avwrap'); if (z) z.classList.remove('drag'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { var m = $('#menu'); if (m) m.classList.remove('open'); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pm-avwrap')) { e.preventDefault(); var pf = $('#pfile'); if (pf) pf.click(); }
+  });
   function ask(o) {
     openModal(xBtn + '<h2>' + o.t + '</h2><p class="lead" style="margin-top:6px">' + o.b + '</p><div class="acts"><button class="btn ghost" data-a="closem">' + (o.no || 'Cancel') + '</button><button class="btn' + (o.red ? ' red' : '') + '" data-a="yes">' + (o.yes || 'Continue') + '</button></div>');
     modalEl._yes = o.on;
@@ -386,6 +492,12 @@
       case 'menu': $('#menu').classList.toggle('open'); break;
       case 'role': S.role = d.r; if (S.utab === 'adm' && d.r === 'admin') S.utab = 'emp'; render(true); toast('Previewing as ' + (d.r === 'super' ? 'Super Admin' : 'Admin')); break;
       case 'nav': if (S.tour >= 0) return; go(d.p); break;
+      case 'photo': var pf = $('#pfile'); if (pf) pf.click(); break;
+      case 'rmphoto': PROF.photo = ''; saveProf(); closeModal(); render(true); toast('Photo removed'); break;
+      case 'savephoto': saveCrop(); break;
+      case 'pwd': openPwd(); break;
+      case 'pweye': var pi = $('#' + d.f); if (pi) { var show = pi.type === 'password'; pi.type = show ? 'text' : 'password'; el.innerHTML = ic(show ? 'eyeoff' : 'eye'); } break;
+      case 'pwsave': closeModal(); toast('Password updated (prototype)'); break;
       case 'logout': toast('Logged out (prototype)'); break;
       case 'create': if (S.tour >= 0 && S.tour < TOUR.length - 1) return; if (S.tour >= 0) { S.tour = -1; render(); } startWizard(); break;
       case 'toast': toast(d.m); break;
