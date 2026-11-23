@@ -16,8 +16,8 @@
   function idbTx(mode, fn, store) {
     store = store || 'docs';
     return new Promise((res, rej) => {
-      const open = indexedDB.open('calybrate-docs', 3);
-      open.onupgradeneeded = () => { ['docs', 'tpls', 'lpfiles'].forEach((n) => { if (!open.result.objectStoreNames.contains(n)) open.result.createObjectStore(n, { keyPath: 'id' }); }); };
+      const open = indexedDB.open('calybrate-docs', 4);
+      open.onupgradeneeded = () => { ['docs', 'tpls', 'mtfiles'].forEach((n) => { if (!open.result.objectStoreNames.contains(n)) open.result.createObjectStore(n, { keyPath: 'id' }); }); };
       open.onerror = () => rej(open.error);
       open.onsuccess = () => {
         const t = open.result.transaction(store, mode); let rq;
@@ -33,7 +33,7 @@
   /* ---------------- local demo store ---------------- */
   function localStore() {
     const KEY = 'calybrate-journey-v2';
-    const empty = () => ({ session: null, steps: {}, comments: [], attachments: [], events: [], lp: [] });
+    const empty = () => ({ session: null, steps: {}, comments: [], attachments: [], events: [], meetings: [], tasks: [] });
     const read = () => { try { return Object.assign(empty(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { return empty(); } };
     const write = (d) => { localStorage.setItem(KEY, JSON.stringify(d)); };
     const dataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
@@ -78,27 +78,35 @@
       },
       async deleteTpl(t) { await idbTx('readwrite', (s) => s.delete(t.id), 'tpls'); },
       async tplFiles(t) { const r = await idbTx('readonly', (s) => s.get(t.id), 'tpls'); const m = new Map(); ((r && r.files) || []).forEach((f) => m.set(f.path, f.blob)); return m; },
-      /* Landing page list: Sandbox writes it, Liveroom ticks, Sandbox confirms */
-      async listLp() { return (read().lp || []).slice().sort((a, b) => a.seq - b.seq); },
-      async addLp(p, rows) {
-        const d = read(); d.lp = d.lp || []; let seq = d.lp.reduce((m, x) => Math.max(m, x.seq), 0);
-        const out = rows.map((r) => ({ id: uid(), seq: ++seq, title: r.title, notes: r.notes || '', section: r.section || 'General', priority: r.priority || 'medium', status: 'open', team: p.team, name: p.name, authorId: p.id, ts: Date.now(), doneBy: '', doneTs: 0, confirmBy: '', confirmTs: 0 }));
-        d.lp.push(...out); write(d); return out;
+      /* Meetings (notes + files) and tasks: Sandbox writes them, Liveroom reads, comments and ticks tasks */
+      async listMeetings() { return (read().meetings || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.ts - a.ts); },
+      async addMeeting(p, m) {
+        const d = read(); d.meetings = d.meetings || [];
+        const x = { id: uid(), date: m.date, title: m.title, notes: m.notes || '', team: p.team, name: p.name, authorId: p.id, ts: Date.now() };
+        d.meetings.push(x); write(d); return x;
       },
-      async updateLp(p, id, patch) { const d = read(), it = (d.lp || []).find((x) => x.id === id); if (it) Object.assign(it, { title: patch.title, notes: patch.notes || '', section: patch.section, priority: patch.priority }); write(d); },
-      async setLpStatus(p, id, status) {
-        const d = read(), it = (d.lp || []).find((x) => x.id === id); if (!it) return;
+      async updateMeeting(p, id, m) { const d = read(), x = (d.meetings || []).find((i) => i.id === id); if (x) Object.assign(x, { date: m.date, title: m.title, notes: m.notes || '' }); write(d); },
+      async deleteMeeting(id) { const d = read(); d.meetings = (d.meetings || []).filter((x) => x.id !== id); write(d); },
+      async listMeetingFiles() { const all = (await idbTx('readonly', (s) => s.getAll(), 'mtfiles')) || []; return all.map((f) => ({ id: f.id, meetingId: f.meetingId, fileName: f.fileName, mime: f.mime, size: f.size, team: f.team, name: f.name, uploaderId: f.uploaderId, ts: f.ts })).sort((a, b) => a.ts - b.ts); },
+      async addMeetingFile(p, { file, meetingId }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, meetingId, fileName: file.name, mime: file.type || '', size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file }), 'mtfiles'); return id; },
+      async deleteMeetingFile(f) { await idbTx('readwrite', (s) => s.delete(f.id), 'mtfiles'); },
+      async meetingFileBlob(f) { const r = await idbTx('readonly', (s) => s.get(f.id), 'mtfiles'); if (!r) throw new Error('File not found'); return r.blob; },
+      async listTasks() { return (read().tasks || []).slice().sort((a, b) => a.seq - b.seq); },
+      async addTasks(p, rows) {
+        const d = read(); d.tasks = d.tasks || []; let seq = d.tasks.reduce((m, x) => Math.max(m, x.seq), 0);
+        const out = rows.map((r) => ({ id: uid(), seq: ++seq, title: r.title, notes: r.notes || '', priority: r.priority || 'medium', due: r.due || '', status: 'open', team: p.team, name: p.name, authorId: p.id, ts: Date.now(), doneBy: '', doneTs: 0, confirmBy: '', confirmTs: 0 }));
+        d.tasks.push(...out); write(d); return out;
+      },
+      async updateTask(p, id, patch) { const d = read(), it = (d.tasks || []).find((x) => x.id === id); if (it) Object.assign(it, { title: patch.title, notes: patch.notes || '', priority: patch.priority, due: patch.due || '' }); write(d); },
+      async setTaskStatus(p, id, status) {
+        const d = read(), it = (d.tasks || []).find((x) => x.id === id); if (!it) return;
         it.status = status; const now = Date.now();
         if (status === 'done') Object.assign(it, { doneBy: p.name, doneTs: now, confirmBy: '', confirmTs: 0 });
         else if (status === 'confirmed') Object.assign(it, { confirmBy: p.name, confirmTs: now });
         else Object.assign(it, { doneBy: '', doneTs: 0, confirmBy: '', confirmTs: 0 });
         write(d);
       },
-      async deleteLp(id) { const d = read(); d.lp = (d.lp || []).filter((x) => x.id !== id); write(d); },
-      async listLpFiles() { const all = (await idbTx('readonly', (s) => s.getAll(), 'lpfiles')) || []; return all.map((f) => ({ id: f.id, title: f.title, size: f.size, team: f.team, name: f.name, uploaderId: f.uploaderId, ts: f.ts })).sort((a, b) => b.ts - a.ts); },
-      async addLpFile(p, { file, title }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, title, size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file }), 'lpfiles'); return id; },
-      async deleteLpFile(f) { await idbTx('readwrite', (s) => s.delete(f.id), 'lpfiles'); },
-      async lpFileUrl(f) { const r = await idbTx('readonly', (s) => s.get(f.id), 'lpfiles'); if (!r) throw new Error('File not found'); return URL.createObjectURL(r.blob); },
+      async deleteTask(id) { const d = read(); d.tasks = (d.tasks || []).filter((x) => x.id !== id); write(d); },
       subscribe(cb) { const h = (e) => { if (e.key === KEY) cb(); }; window.addEventListener('storage', h); return () => window.removeEventListener('storage', h); }
     };
   }
@@ -207,42 +215,53 @@
         await Promise.all(Array.from({ length: 6 }, async () => { while (n < list.length) { const f = list[n++]; if (!url[f.key]) continue; const r = await fetch(url[f.key]); if (r.ok) m.set(f.path, await r.blob()); } }));
         return m;
       },
-      /* Landing page list (see supabase/landing.sql) */
-      async listLp() {
-        const r = await sb.from('landing_items').select('*').order('seq', { ascending: true });
+      /* Meetings and tasks (see supabase/meetings.sql) */
+      async listMeetings() {
+        const r = await sb.from('meetings').select('*').order('meeting_date', { ascending: false }).order('created_at', { ascending: false });
         if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
-        return r.data.map((x) => ({ id: x.id, seq: x.seq, title: x.title, notes: x.notes || '', section: x.section, priority: x.priority, status: x.status, team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at), doneBy: x.done_by_name || '', doneTs: x.done_at ? toTs(x.done_at) : 0, confirmBy: x.confirmed_by_name || '', confirmTs: x.confirmed_at ? toTs(x.confirmed_at) : 0 }));
+        return r.data.map((x) => ({ id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '', team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at) }));
       },
-      async addLp(p, rows) {
-        const data = ok(await sb.from('landing_items').insert(rows.map((r) => ({ title: r.title, notes: r.notes || null, section: r.section || 'General', priority: r.priority || 'medium', status: 'open', created_by: p.id, team: p.team, display_name: p.name }))).select('id, seq, title'));
+      async addMeeting(p, m) {
+        const x = ok(await sb.from('meetings').insert({ meeting_date: m.date, title: m.title, notes: m.notes || null, created_by: p.id, team: p.team, display_name: p.name }).select('*').single());
+        return { id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '' };
+      },
+      async updateMeeting(p, id, m) { ok(await sb.from('meetings').update({ meeting_date: m.date, title: m.title, notes: m.notes || null }).eq('id', id)); },
+      async deleteMeeting(id) { ok(await sb.from('meetings').delete().eq('id', id)); },
+      async listMeetingFiles() {
+        const r = await sb.from('meeting_files').select('*').order('created_at', { ascending: true });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((f) => ({ id: f.id, meetingId: f.meeting_id, fileName: f.file_name, mime: f.mime || '', size: f.size, team: f.team, name: f.display_name, uploaderId: f.uploader, ts: toTs(f.created_at), path: f.path }));
+      },
+      async addMeetingFile(p, { file, meetingId }) {
+        const ext = ((file.name.split('.').pop() || 'bin').replace(/[^\w]/g, '').slice(0, 8)) || 'bin', path = `${meetingId}/${uid()}.${ext}`;
+        ok(await sb.storage.from('meetings').upload(path, file, { contentType: file.type || 'application/octet-stream' }));
+        const r = await sb.from('meeting_files').insert({ meeting_id: meetingId, file_name: file.name, mime: file.type || null, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
+        if (r.error) { await sb.storage.from('meetings').remove([path]); throw r.error; }
+      },
+      async deleteMeetingFile(f) { ok(await sb.from('meeting_files').delete().eq('id', f.id)); await sb.storage.from('meetings').remove([f.path]); },
+      async meetingFileBlob(f) {
+        const r = await sb.storage.from('meetings').download(f.path);
+        if (r.error) throw r.error;
+        return r.data;
+      },
+      async listTasks() {
+        const r = await sb.from('meeting_tasks').select('*').order('seq', { ascending: true });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((x) => ({ id: x.id, seq: x.seq, title: x.title, notes: x.notes || '', priority: x.priority, due: x.due_date || '', status: x.status, team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at), doneBy: x.done_by_name || '', doneTs: x.done_at ? toTs(x.done_at) : 0, confirmBy: x.confirmed_by_name || '', confirmTs: x.confirmed_at ? toTs(x.confirmed_at) : 0 }));
+      },
+      async addTasks(p, rows) {
+        const data = ok(await sb.from('meeting_tasks').insert(rows.map((r) => ({ title: r.title, notes: r.notes || null, priority: r.priority || 'medium', due_date: r.due || null, status: 'open', created_by: p.id, team: p.team, display_name: p.name }))).select('id, seq, title'));
         return data.map((x) => ({ id: x.id, seq: x.seq, title: x.title }));
       },
-      async updateLp(p, id, patch) { ok(await sb.from('landing_items').update({ title: patch.title, notes: patch.notes || null, section: patch.section, priority: patch.priority }).eq('id', id)); },
-      async setLpStatus(p, id, status) {
+      async updateTask(p, id, patch) { ok(await sb.from('meeting_tasks').update({ title: patch.title, notes: patch.notes || null, priority: patch.priority, due_date: patch.due || null }).eq('id', id)); },
+      async setTaskStatus(p, id, status) {
         const now = new Date().toISOString(), patch = { status };
         if (status === 'done') Object.assign(patch, { done_by_name: p.name, done_at: now, confirmed_by_name: null, confirmed_at: null });
         else if (status === 'confirmed') Object.assign(patch, { confirmed_by_name: p.name, confirmed_at: now });
         else Object.assign(patch, { done_by_name: null, done_at: null, confirmed_by_name: null, confirmed_at: null });
-        ok(await sb.from('landing_items').update(patch).eq('id', id));
+        ok(await sb.from('meeting_tasks').update(patch).eq('id', id));
       },
-      async deleteLp(id) { ok(await sb.from('landing_items').delete().eq('id', id)); },
-      async listLpFiles() {
-        const r = await sb.from('landing_files').select('*').order('created_at', { ascending: false });
-        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
-        return r.data.map((f) => ({ id: f.id, title: f.title, size: f.size, team: f.team, name: f.display_name, uploaderId: f.uploader, ts: toTs(f.created_at), path: f.path }));
-      },
-      async addLpFile(p, { file, title }) {
-        const path = `${uid()}.pdf`;
-        ok(await sb.storage.from('landing').upload(path, file, { contentType: 'application/pdf' }));
-        const r = await sb.from('landing_files').insert({ title, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
-        if (r.error) { await sb.storage.from('landing').remove([path]); throw r.error; }
-      },
-      async deleteLpFile(f) { ok(await sb.from('landing_files').delete().eq('id', f.id)); await sb.storage.from('landing').remove([f.path]); },
-      async lpFileUrl(f, download) {
-        const { data, error } = await sb.storage.from('landing').createSignedUrl(f.path, 3600, download ? { download: (f.title || 'document').replace(/[^\w .-]/g, '') + '.pdf' } : undefined);
-        if (error) throw error;
-        return data.signedUrl;
-      },
+      async deleteTask(id) { ok(await sb.from('meeting_tasks').delete().eq('id', id)); },
       subscribe(cb) {
         let t;
         const ch = sb.channel('calybrate-live').on('postgres_changes', { event: '*', schema: 'public' }, () => { clearTimeout(t); t = setTimeout(cb, 250); }).subscribe();

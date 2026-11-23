@@ -32,22 +32,21 @@
     if (view === v && !push) return;
     if (v !== 'roadmap' && document.body.classList.contains('story')) { const x = $('[data-a="exit-story"]'); if (x) x.click(); }
     view = v;
-    document.body.classList.toggle('view-docs', v === 'docs'); document.body.classList.toggle('view-tpl', v === 'tpl'); document.body.classList.toggle('view-lp', v === 'lp');
-    $('#docs-view').hidden = v !== 'docs'; $('#tpl-view').hidden = v !== 'tpl'; $('#lp-view').hidden = v !== 'lp';
+    document.body.classList.toggle('view-docs', v === 'docs'); document.body.classList.toggle('view-tpl', v === 'tpl'); document.body.classList.toggle('view-mt', v === 'mt');
+    $('#docs-view').hidden = v !== 'docs'; $('#tpl-view').hidden = v !== 'tpl'; $('#mt-view').hidden = v !== 'mt';
     $$('#switch button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
     if (v !== 'docs') closeViewer(true);
     if (window.CalTpl) { if (v === 'tpl') CalTpl.show(); else CalTpl.hide(); }
-    if (window.CalLp) { if (v === 'lp') CalLp.show(); else CalLp.hide(); }
+    if (window.CalMeet) { if (v === 'mt') CalMeet.show(); else CalMeet.hide(); }
     if (v === 'docs') renderList();
     if (v === 'roadmap') { window.dispatchEvent(new Event('resize')); }
-    const h = v === 'docs' ? '#documents' : v === 'tpl' ? '#templates' : v === 'lp' ? '#landing' : '';
+    const h = v === 'docs' ? '#documents' : v === 'tpl' ? '#templates' : v === 'mt' ? '#meetings' : '';
     if (location.hash !== h && !(h === '' && !location.hash)) history.replaceState(null, '', location.pathname + location.search + h);
   }
   function route() {
     const m = /^#documents(?:\/([^/]+)(?:\/(\d+))?)?$/.exec(location.hash || '');
     if (m) { setView('docs'); if (m[1] && find(m[1])) openDoc(m[1], +m[2] || 1); return; }
-    const lm = /^#landing(?:\/([^/]+))?$/.exec(location.hash || '');
-    if (lm) { setView('lp'); if (lm[1] && window.CalLp) CalLp.openNode('lp:' + lm[1]); return; }
+    if (/^#meetings\/?$/.test(location.hash || '')) { setView('mt'); return; }
     const tm = /^#templates(?:\/([^/]+))?$/.exec(location.hash || '');
     if (tm) { setView('tpl'); if (tm[1] && window.CalTpl) CalTpl.open(tm[1]); }
   }
@@ -314,13 +313,13 @@
     async init(a) {
       api = a; $('#switch').hidden = false;
       if (window.CalTpl) CalTpl.init(api);
-      if (window.CalLp) await CalLp.init(api);
+      if (window.CalMeet) await CalMeet.init(api);
       await loadUploaded(); renderList(); route();
-      try { api.store.subscribe(async () => { await loadUploaded(); if (view === 'docs' && !cur) renderList(); if (window.CalTpl) CalTpl.onData(); if (window.CalLp) CalLp.onData(); }); } catch (e) { /* ignore */ }
+      try { api.store.subscribe(async () => { await loadUploaded(); if (view === 'docs' && !cur) renderList(); if (window.CalTpl) CalTpl.onData(); if (window.CalMeet) CalMeet.onData(); }); } catch (e) { /* ignore */ }
     },
-    onData() { if (!api) return; if (window.CalLp) CalLp.onData(); if (view === 'docs' && !cur) renderList(); if (cur && cur.pdf) { updateTop(); renderNav(); const ta = $('#dv-text'); renderSide(); if (ta && document.activeElement !== ta) { /* keep draft */ } } },
-    nodeName(id) { if (window.CalLp && CalLp.isNode(id)) return CalLp.nodeName(id); if (window.CalTpl && CalTpl.isNode(id)) return CalTpl.nodeName(id); const n = parseNode(id); if (!n) return id; const d = find(n.id); return d ? `${d.title} · ${n.page ? 'page ' + n.page : 'whole document'}` : id; },
-    isDoc: (id) => !!parseNode(id) || !!(window.CalTpl && CalTpl.isNode(id)) || !!(window.CalLp && CalLp.isNode(id)),
-    openNode(id) { if (window.CalLp && CalLp.isNode(id)) { setView('lp'); CalLp.openNode(id); return; } if (window.CalTpl && CalTpl.isNode(id)) { setView('tpl'); CalTpl.openNode(id); return; } const n = parseNode(id); if (!n || !find(n.id)) return; setView('docs'); openDoc(n.id, n.page || 1); if (!n.page) tab = 'doc'; }
+    onData() { if (!api) return; if (window.CalMeet) CalMeet.onData(); if (view === 'docs' && !cur) renderList(); if (cur && cur.pdf) { updateTop(); renderNav(); const ta = $('#dv-text'); renderSide(); if (ta && document.activeElement !== ta) { /* keep draft */ } } },
+    nodeName(id) { if (window.CalMeet && CalMeet.isNode(id)) return CalMeet.nodeName(id); if (window.CalTpl && CalTpl.isNode(id)) return CalTpl.nodeName(id); const n = parseNode(id); if (!n) return id; const d = find(n.id); return d ? `${d.title} · ${n.page ? 'page ' + n.page : 'whole document'}` : id; },
+    isDoc: (id) => !!parseNode(id) || !!(window.CalTpl && CalTpl.isNode(id)) || !!(window.CalMeet && CalMeet.isNode(id)),
+    openNode(id) { if (window.CalMeet && CalMeet.isNode(id)) { setView('mt'); CalMeet.openNode(id); return; } if (window.CalTpl && CalTpl.isNode(id)) { setView('tpl'); CalTpl.openNode(id); return; } const n = parseNode(id); if (!n || !find(n.id)) return; setView('docs'); openDoc(n.id, n.page || 1); if (!n.page) tab = 'doc'; }
   };
 })();
