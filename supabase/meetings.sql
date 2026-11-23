@@ -1,8 +1,10 @@
 -- Calybrate Journey Map: the "Meetings" tab.
 --   Meetings : Sandbox records each meeting (date, title, what was discussed) and uploads files (PDF, Word, Excel, CSV, images, anything).
---              Liveroom can only read them and discuss them. It cannot add, change or upload anything.
---   Tasks    : Sandbox adds tasks, Liveroom ticks one when it is done, Sandbox confirms it to close it.
--- Run this once in Supabase -> SQL Editor -> New query -> Run, AFTER schema.sql.
+--              A meeting is shared with both teams or kept for Sandbox only. Liveroom sees the shared ones, can discuss them,
+--              and cannot add, change or upload anything.
+--   Tasks    : Sandbox adds tasks (with optional screenshots), Liveroom ticks one when it is done, Sandbox confirms it to close it.
+-- Run this in Supabase -> SQL Editor -> New query -> Run, AFTER schema.sql. It is safe to run again: if you ran an older
+-- version of this file, running it again upgrades the tables and rules.
 -- Comments reuse public.comments (node_id = 'mt:<meeting id>' or 'tk:<task id>'), so they show up in the normal activity feed and alerts.
 
 -- Meetings -------------------------------------------------------------------------------------------------
@@ -11,6 +13,7 @@ create table if not exists public.meetings (
   meeting_date date not null,
   title        text not null check (char_length(title) between 1 and 200),
   notes        text check (notes is null or char_length(notes) <= 10000),
+  visibility   text not null default 'both' check (visibility in ('both', 'sandbox')),
   created_by   uuid not null references auth.users (id),
   team         text not null,
   display_name text not null,
@@ -18,10 +21,16 @@ create table if not exists public.meetings (
   updated_at   timestamptz not null default now()
 );
 
+alter table public.meetings add column if not exists visibility text not null default 'both';
+do $$ begin
+  alter table public.meetings add constraint meetings_visibility_check check (visibility in ('both', 'sandbox'));
+exception when duplicate_object then null; end $$;
+
 alter table public.meetings enable row level security;
 
 drop policy if exists mt_read on public.meetings;
-create policy mt_read on public.meetings for select to authenticated using (public.is_member());
+create policy mt_read on public.meetings for select to authenticated
+  using (public.is_member() and (visibility = 'both' or public.my_team() = 'sandbox'));
 drop policy if exists mt_insert on public.meetings;
 create policy mt_insert on public.meetings for insert to authenticated
   with check (public.my_team() = 'sandbox' and created_by = auth.uid() and team = 'sandbox');
@@ -32,7 +41,8 @@ create policy mt_delete on public.meetings for delete to authenticated using (pu
 
 create table if not exists public.meeting_files (
   id           uuid primary key default gen_random_uuid(),
-  meeting_id   uuid not null references public.meetings (id) on delete cascade,
+  meeting_id   uuid references public.meetings (id) on delete cascade,
+  task_id      uuid,
   file_name    text not null check (char_length(file_name) between 1 and 300),
   mime         text,
   path         text not null,
@@ -44,10 +54,19 @@ create table if not exists public.meeting_files (
 );
 create index if not exists meeting_files_meeting_idx on public.meeting_files (meeting_id);
 
+-- files can belong to a meeting or to a task (a screenshot)
+alter table public.meeting_files add column if not exists task_id uuid;
+alter table public.meeting_files alter column meeting_id drop not null;
+create index if not exists meeting_files_task_idx on public.meeting_files (task_id);
+
 alter table public.meeting_files enable row level security;
 
 drop policy if exists mtf_read on public.meeting_files;
-create policy mtf_read on public.meeting_files for select to authenticated using (public.is_member());
+create policy mtf_read on public.meeting_files for select to authenticated
+  using (public.is_member() and (
+    public.my_team() = 'sandbox' or task_id is not null
+    or exists (select 1 from public.meetings m where m.id = meeting_id and m.visibility = 'both')
+  ));
 drop policy if exists mtf_insert on public.meeting_files;
 create policy mtf_insert on public.meeting_files for insert to authenticated
   with check (public.my_team() = 'sandbox' and uploader = auth.uid() and team = 'sandbox');
@@ -60,7 +79,11 @@ values ('meetings', 'meetings', false, 52428800)
 on conflict (id) do nothing;
 
 drop policy if exists mtb_read on storage.objects;
-create policy mtb_read on storage.objects for select to authenticated using (bucket_id = 'meetings' and public.is_member());
+create policy mtb_read on storage.objects for select to authenticated
+  using (bucket_id = 'meetings' and public.is_member() and (
+    public.my_team() = 'sandbox' or split_part(name, '/', 1) = 'tasks'
+    or exists (select 1 from public.meetings m where m.id::text = split_part(name, '/', 1) and m.visibility = 'both')
+  ));
 drop policy if exists mtb_insert on storage.objects;
 create policy mtb_insert on storage.objects for insert to authenticated with check (bucket_id = 'meetings' and public.my_team() = 'sandbox');
 drop policy if exists mtb_delete on storage.objects;

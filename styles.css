@@ -717,3 +717,31 @@ body.mt-prevopen { overflow: hidden; }
   .mt-seg { width: 100%; } .mt-seg button { flex: 1; justify-content: center; padding: 9px 8px; } .mtf-row { grid-template-columns: 1fr; } .mt-fn { max-width: 150px; }
   .mtp-bar { padding: 10px 12px; } .mtp-acts .btn { padding: 7px 10px; }
 }
+
+/* ---- Meetings tab, round 2: notes composer, privacy, export menu, task screenshots, discussion drawer ---- */
+.mt-menuwrap { position: relative; } .mt-menuwrap .btn .si.sm { width: 14px; height: 14px; margin-left: 2px; }
+.mt-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: 270px; padding: 6px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line2); box-shadow: var(--shadow); display: grid; gap: 2px; }
+.mt-menu button { text-align: left; display: grid; gap: 1px; padding: 10px 12px; border: 0; border-radius: 10px; background: none; color: var(--text); font: 600 13.5px var(--font); } .mt-menu button:hover { background: var(--surface2); } .mt-menu small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.mt-comp { display: grid; gap: 10px; padding: 18px; border-radius: 18px; background: linear-gradient(180deg, rgba(var(--p-rgb), .10), rgba(var(--p-rgb), .04)); border: 1px solid rgba(var(--p-rgb), .35); }
+.mt-comph { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; } .mt-comph b { font: 700 15px var(--head); } .mt-comph small { color: var(--muted); font-size: 12.5px; }
+.mt-in { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--surface2); border: 1px solid var(--line2); border-radius: 12px; padding: 10px 12px; outline: none; } textarea.mt-in { resize: vertical; min-height: 110px; line-height: 1.55; } .mt-in.sm { width: auto; padding: 6px 10px; }
+.mt-in:focus { border-color: var(--purple); box-shadow: 0 0 0 3px rgba(var(--p-rgb), .18); }
+.mt-compf { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mt-vis { display: inline-flex; align-items: center; gap: 4px; padding: 3px; border-radius: 12px; background: var(--surface2); border: 1px solid var(--line2); } .mt-vis > span { padding: 0 8px 0 10px; color: var(--muted); font-size: 12px; }
+.mt-vis button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: 600 12.5px var(--font); } .mt-vis button .si { width: 13px; height: 13px; } .mt-vis button:hover { color: var(--text); } .mt-vis button.on { background: var(--grad); color: var(--on-accent); }
+.mt-compfiles { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; } .mt-compfiles label { cursor: pointer; }
+.mt-compact { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; } .mt-compact small { color: var(--muted); font-size: 12.5px; } .mt-compact > span { display: inline-flex; gap: 8px; }
+.mt-priv { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px; background: rgba(251,191,36,.14); color: var(--doing); font-size: 11.5px; font-weight: 700; } .mt-priv .si { width: 11px; height: 11px; }
+.mt-empty.slim { padding: 22px 16px; }
+.tk-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; } .tk-th { position: relative; display: inline-block; }
+.tk-th > button:first-child { display: block; padding: 0; border: 1px solid var(--line2); border-radius: 10px; overflow: hidden; background: var(--surface2); width: 74px; height: 54px; cursor: zoom-in; } .tk-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-thx { position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border-radius: 50%; border: 1px solid var(--line2); background: var(--surface); color: var(--muted); opacity: 0; transition: opacity .15s; } .tk-th:hover .tk-thx, .tk-thx:focus-visible { opacity: 1; } .tk-thx:hover { color: var(--blocked); } .tk-thx .si { width: 11px; height: 11px; }
+.tk-pend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tk-c-act .btn .si { width: 14px; height: 14px; }
+.mt-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 95; width: min(430px, 100%); display: grid; grid-template-rows: auto 1fr auto; background: var(--surface); border-left: 1px solid var(--line2); box-shadow: -18px 0 50px rgba(0,0,0,.45); transform: translateX(105%); transition: transform .25s ease; visibility: hidden; }
+.mt-drawer.open { transform: none; visibility: visible; }
+.mtd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); } .mtd-head small { display: block; color: var(--muted); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; } .mtd-head b { display: block; font: 700 15px/1.35 var(--head); overflow-wrap: anywhere; margin-top: 2px; }
+.mtd-thread { overflow-y: auto; padding: 16px 18px; align-content: start; margin: 0; }
+.mtd-compose { display: flex; gap: 8px; align-items: flex-end; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface2); } .mtd-compose textarea { flex: 1; min-height: 46px; max-height: 150px; resize: vertical; font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; padding: 10px 12px; outline: none; } .mtd-compose textarea:focus { border-color: var(--purple); }
+@media (min-width: 1200px) { body.mt-drawer-open #mt-view { padding-right: 450px; } }
+@media (max-width: 800px) { .mt-menu { right: auto; left: 0; } .mt-comp { padding: 14px; } .mt-compf { align-items: stretch; } .mt-vis { align-self: flex-start; } .mt-drawer { width: 100%; } .tk-th > button:first-child { width: 64px; height: 48px; } .tk-thx { opacity: 1; } }

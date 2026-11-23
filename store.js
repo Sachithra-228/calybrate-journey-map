@@ -82,13 +82,13 @@
       async listMeetings() { return (read().meetings || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.ts - a.ts); },
       async addMeeting(p, m) {
         const d = read(); d.meetings = d.meetings || [];
-        const x = { id: uid(), date: m.date, title: m.title, notes: m.notes || '', team: p.team, name: p.name, authorId: p.id, ts: Date.now() };
+        const x = { id: uid(), date: m.date, title: m.title, notes: m.notes || '', visibility: m.visibility === 'sandbox' ? 'sandbox' : 'both', team: p.team, name: p.name, authorId: p.id, ts: Date.now() };
         d.meetings.push(x); write(d); return x;
       },
-      async updateMeeting(p, id, m) { const d = read(), x = (d.meetings || []).find((i) => i.id === id); if (x) Object.assign(x, { date: m.date, title: m.title, notes: m.notes || '' }); write(d); },
+      async updateMeeting(p, id, m) { const d = read(), x = (d.meetings || []).find((i) => i.id === id); if (x) Object.assign(x, { date: m.date, title: m.title, notes: m.notes || '', visibility: m.visibility === 'sandbox' ? 'sandbox' : 'both' }); write(d); },
       async deleteMeeting(id) { const d = read(); d.meetings = (d.meetings || []).filter((x) => x.id !== id); write(d); },
-      async listMeetingFiles() { const all = (await idbTx('readonly', (s) => s.getAll(), 'mtfiles')) || []; return all.map((f) => ({ id: f.id, meetingId: f.meetingId, fileName: f.fileName, mime: f.mime, size: f.size, team: f.team, name: f.name, uploaderId: f.uploaderId, ts: f.ts })).sort((a, b) => a.ts - b.ts); },
-      async addMeetingFile(p, { file, meetingId }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, meetingId, fileName: file.name, mime: file.type || '', size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file }), 'mtfiles'); return id; },
+      async listMeetingFiles() { const all = (await idbTx('readonly', (s) => s.getAll(), 'mtfiles')) || []; return all.map((f) => ({ id: f.id, meetingId: f.meetingId || '', taskId: f.taskId || '', fileName: f.fileName, mime: f.mime, size: f.size, team: f.team, name: f.name, uploaderId: f.uploaderId, ts: f.ts })).sort((a, b) => a.ts - b.ts); },
+      async addMeetingFile(p, { file, meetingId, taskId }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, meetingId: meetingId || '', taskId: taskId || '', fileName: file.name, mime: file.type || '', size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file }), 'mtfiles'); return id; },
       async deleteMeetingFile(f) { await idbTx('readwrite', (s) => s.delete(f.id), 'mtfiles'); },
       async meetingFileBlob(f) { const r = await idbTx('readonly', (s) => s.get(f.id), 'mtfiles'); if (!r) throw new Error('File not found'); return r.blob; },
       async listTasks() { return (read().tasks || []).slice().sort((a, b) => a.seq - b.seq); },
@@ -219,23 +219,23 @@
       async listMeetings() {
         const r = await sb.from('meetings').select('*').order('meeting_date', { ascending: false }).order('created_at', { ascending: false });
         if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
-        return r.data.map((x) => ({ id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '', team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at) }));
+        return r.data.map((x) => ({ id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '', visibility: x.visibility || 'both', team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at) }));
       },
       async addMeeting(p, m) {
-        const x = ok(await sb.from('meetings').insert({ meeting_date: m.date, title: m.title, notes: m.notes || null, created_by: p.id, team: p.team, display_name: p.name }).select('*').single());
-        return { id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '' };
+        const x = ok(await sb.from('meetings').insert({ meeting_date: m.date, title: m.title, notes: m.notes || null, visibility: m.visibility === 'sandbox' ? 'sandbox' : 'both', created_by: p.id, team: p.team, display_name: p.name }).select('*').single());
+        return { id: x.id, date: x.meeting_date, title: x.title, notes: x.notes || '', visibility: x.visibility || 'both' };
       },
-      async updateMeeting(p, id, m) { ok(await sb.from('meetings').update({ meeting_date: m.date, title: m.title, notes: m.notes || null }).eq('id', id)); },
+      async updateMeeting(p, id, m) { ok(await sb.from('meetings').update({ meeting_date: m.date, title: m.title, notes: m.notes || null, visibility: m.visibility === 'sandbox' ? 'sandbox' : 'both' }).eq('id', id)); },
       async deleteMeeting(id) { ok(await sb.from('meetings').delete().eq('id', id)); },
       async listMeetingFiles() {
         const r = await sb.from('meeting_files').select('*').order('created_at', { ascending: true });
         if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
-        return r.data.map((f) => ({ id: f.id, meetingId: f.meeting_id, fileName: f.file_name, mime: f.mime || '', size: f.size, team: f.team, name: f.display_name, uploaderId: f.uploader, ts: toTs(f.created_at), path: f.path }));
+        return r.data.map((f) => ({ id: f.id, meetingId: f.meeting_id || '', taskId: f.task_id || '', fileName: f.file_name, mime: f.mime || '', size: f.size, team: f.team, name: f.display_name, uploaderId: f.uploader, ts: toTs(f.created_at), path: f.path }));
       },
-      async addMeetingFile(p, { file, meetingId }) {
-        const ext = ((file.name.split('.').pop() || 'bin').replace(/[^\w]/g, '').slice(0, 8)) || 'bin', path = `${meetingId}/${uid()}.${ext}`;
+      async addMeetingFile(p, { file, meetingId, taskId }) {
+        const ext = ((file.name.split('.').pop() || 'bin').replace(/[^\w]/g, '').slice(0, 8)) || 'bin', path = taskId ? `tasks/${taskId}/${uid()}.${ext}` : `${meetingId}/${uid()}.${ext}`;
         ok(await sb.storage.from('meetings').upload(path, file, { contentType: file.type || 'application/octet-stream' }));
-        const r = await sb.from('meeting_files').insert({ meeting_id: meetingId, file_name: file.name, mime: file.type || null, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
+        const r = await sb.from('meeting_files').insert({ meeting_id: meetingId || null, task_id: taskId || null, file_name: file.name, mime: file.type || null, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
         if (r.error) { await sb.storage.from('meetings').remove([path]); throw r.error; }
       },
       async deleteMeetingFile(f) { ok(await sb.from('meeting_files').delete().eq('id', f.id)); await sb.storage.from('meetings').remove([f.path]); },
