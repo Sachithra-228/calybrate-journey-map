@@ -16,8 +16,8 @@
   function idbTx(mode, fn, store) {
     store = store || 'docs';
     return new Promise((res, rej) => {
-      const open = indexedDB.open('calybrate-docs', 2);
-      open.onupgradeneeded = () => { ['docs', 'tpls'].forEach((n) => { if (!open.result.objectStoreNames.contains(n)) open.result.createObjectStore(n, { keyPath: 'id' }); }); };
+      const open = indexedDB.open('calybrate-docs', 3);
+      open.onupgradeneeded = () => { ['docs', 'tpls', 'lpfiles'].forEach((n) => { if (!open.result.objectStoreNames.contains(n)) open.result.createObjectStore(n, { keyPath: 'id' }); }); };
       open.onerror = () => rej(open.error);
       open.onsuccess = () => {
         const t = open.result.transaction(store, mode); let rq;
@@ -33,7 +33,7 @@
   /* ---------------- local demo store ---------------- */
   function localStore() {
     const KEY = 'calybrate-journey-v2';
-    const empty = () => ({ session: null, steps: {}, comments: [], attachments: [], events: [] });
+    const empty = () => ({ session: null, steps: {}, comments: [], attachments: [], events: [], lp: [] });
     const read = () => { try { return Object.assign(empty(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { return empty(); } };
     const write = (d) => { localStorage.setItem(KEY, JSON.stringify(d)); };
     const dataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
@@ -78,6 +78,27 @@
       },
       async deleteTpl(t) { await idbTx('readwrite', (s) => s.delete(t.id), 'tpls'); },
       async tplFiles(t) { const r = await idbTx('readonly', (s) => s.get(t.id), 'tpls'); const m = new Map(); ((r && r.files) || []).forEach((f) => m.set(f.path, f.blob)); return m; },
+      /* Landing page list: Sandbox writes it, Liveroom ticks, Sandbox confirms */
+      async listLp() { return (read().lp || []).slice().sort((a, b) => a.seq - b.seq); },
+      async addLp(p, rows) {
+        const d = read(); d.lp = d.lp || []; let seq = d.lp.reduce((m, x) => Math.max(m, x.seq), 0);
+        const out = rows.map((r) => ({ id: uid(), seq: ++seq, title: r.title, notes: r.notes || '', section: r.section || 'General', priority: r.priority || 'medium', status: 'open', team: p.team, name: p.name, authorId: p.id, ts: Date.now(), doneBy: '', doneTs: 0, confirmBy: '', confirmTs: 0 }));
+        d.lp.push(...out); write(d); return out;
+      },
+      async updateLp(p, id, patch) { const d = read(), it = (d.lp || []).find((x) => x.id === id); if (it) Object.assign(it, { title: patch.title, notes: patch.notes || '', section: patch.section, priority: patch.priority }); write(d); },
+      async setLpStatus(p, id, status) {
+        const d = read(), it = (d.lp || []).find((x) => x.id === id); if (!it) return;
+        it.status = status; const now = Date.now();
+        if (status === 'done') Object.assign(it, { doneBy: p.name, doneTs: now, confirmBy: '', confirmTs: 0 });
+        else if (status === 'confirmed') Object.assign(it, { confirmBy: p.name, confirmTs: now });
+        else Object.assign(it, { doneBy: '', doneTs: 0, confirmBy: '', confirmTs: 0 });
+        write(d);
+      },
+      async deleteLp(id) { const d = read(); d.lp = (d.lp || []).filter((x) => x.id !== id); write(d); },
+      async listLpFiles() { const all = (await idbTx('readonly', (s) => s.getAll(), 'lpfiles')) || []; return all.map((f) => ({ id: f.id, title: f.title, size: f.size, team: f.team, name: f.name, uploaderId: f.uploaderId, ts: f.ts })).sort((a, b) => b.ts - a.ts); },
+      async addLpFile(p, { file, title }) { const id = uid(); await idbTx('readwrite', (s) => s.put({ id, title, size: file.size, team: p.team, name: p.name, uploaderId: p.id, ts: Date.now(), blob: file }), 'lpfiles'); return id; },
+      async deleteLpFile(f) { await idbTx('readwrite', (s) => s.delete(f.id), 'lpfiles'); },
+      async lpFileUrl(f) { const r = await idbTx('readonly', (s) => s.get(f.id), 'lpfiles'); if (!r) throw new Error('File not found'); return URL.createObjectURL(r.blob); },
       subscribe(cb) { const h = (e) => { if (e.key === KEY) cb(); }; window.addEventListener('storage', h); return () => window.removeEventListener('storage', h); }
     };
   }
@@ -185,6 +206,42 @@
         let n = 0;
         await Promise.all(Array.from({ length: 6 }, async () => { while (n < list.length) { const f = list[n++]; if (!url[f.key]) continue; const r = await fetch(url[f.key]); if (r.ok) m.set(f.path, await r.blob()); } }));
         return m;
+      },
+      /* Landing page list (see supabase/landing.sql) */
+      async listLp() {
+        const r = await sb.from('landing_items').select('*').order('seq', { ascending: true });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((x) => ({ id: x.id, seq: x.seq, title: x.title, notes: x.notes || '', section: x.section, priority: x.priority, status: x.status, team: x.team, name: x.display_name, authorId: x.created_by, ts: toTs(x.created_at), doneBy: x.done_by_name || '', doneTs: x.done_at ? toTs(x.done_at) : 0, confirmBy: x.confirmed_by_name || '', confirmTs: x.confirmed_at ? toTs(x.confirmed_at) : 0 }));
+      },
+      async addLp(p, rows) {
+        const data = ok(await sb.from('landing_items').insert(rows.map((r) => ({ title: r.title, notes: r.notes || null, section: r.section || 'General', priority: r.priority || 'medium', status: 'open', created_by: p.id, team: p.team, display_name: p.name }))).select('id, seq, title'));
+        return data.map((x) => ({ id: x.id, seq: x.seq, title: x.title }));
+      },
+      async updateLp(p, id, patch) { ok(await sb.from('landing_items').update({ title: patch.title, notes: patch.notes || null, section: patch.section, priority: patch.priority }).eq('id', id)); },
+      async setLpStatus(p, id, status) {
+        const now = new Date().toISOString(), patch = { status };
+        if (status === 'done') Object.assign(patch, { done_by_name: p.name, done_at: now, confirmed_by_name: null, confirmed_at: null });
+        else if (status === 'confirmed') Object.assign(patch, { confirmed_by_name: p.name, confirmed_at: now });
+        else Object.assign(patch, { done_by_name: null, done_at: null, confirmed_by_name: null, confirmed_at: null });
+        ok(await sb.from('landing_items').update(patch).eq('id', id));
+      },
+      async deleteLp(id) { ok(await sb.from('landing_items').delete().eq('id', id)); },
+      async listLpFiles() {
+        const r = await sb.from('landing_files').select('*').order('created_at', { ascending: false });
+        if (r.error) { if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return []; throw r.error; }
+        return r.data.map((f) => ({ id: f.id, title: f.title, size: f.size, team: f.team, name: f.display_name, uploaderId: f.uploader, ts: toTs(f.created_at), path: f.path }));
+      },
+      async addLpFile(p, { file, title }) {
+        const path = `${uid()}.pdf`;
+        ok(await sb.storage.from('landing').upload(path, file, { contentType: 'application/pdf' }));
+        const r = await sb.from('landing_files').insert({ title, path, size: file.size, uploader: p.id, team: p.team, display_name: p.name });
+        if (r.error) { await sb.storage.from('landing').remove([path]); throw r.error; }
+      },
+      async deleteLpFile(f) { ok(await sb.from('landing_files').delete().eq('id', f.id)); await sb.storage.from('landing').remove([f.path]); },
+      async lpFileUrl(f, download) {
+        const { data, error } = await sb.storage.from('landing').createSignedUrl(f.path, 3600, download ? { download: (f.title || 'document').replace(/[^\w .-]/g, '') + '.pdf' } : undefined);
+        if (error) throw error;
+        return data.signedUrl;
       },
       subscribe(cb) {
         let t;

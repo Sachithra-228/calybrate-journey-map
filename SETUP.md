@@ -18,6 +18,9 @@ The **Documents** area ships with the three design PDFs (in `documents/`), which
 ### 2c. Templates (page folders), optional
 The **Templates** area lets the teams create a template per redesigned page, upload its HTML/CSS folder and see it live. To use it with the shared backend, run [`supabase/templates.sql`](supabase/templates.sql) once in the SQL Editor (after `schema.sql`). It adds a `templates` table and a private `templates` bucket (50 MB per file). Demo mode needs nothing.
 
+### 2d. Landing page list, optional
+The **Landing page** tab is a shared checklist for the public site. Sandbox adds items (one at a time, pasted from Excel, or imported from a CSV), Liveroom ticks an item when it is done, and Sandbox confirms it to close it. PDFs can be uploaded too. To use it with the shared backend, run [`supabase/landing.sql`](supabase/landing.sql) once in the SQL Editor (after `schema.sql`). It adds the `landing_items` and `landing_files` tables, a private `landing` bucket (50 MB per file) and the rules for who may change what. Demo mode needs nothing.
+
 ## 3. Create the two logins
 1. **Authentication → Providers → Email**: keep it enabled. Under **Authentication → Sign In / Providers** turn **off "Allow new users to sign up"** so nobody else can register.
 2. **Authentication → Users → Add user → Create new user**. Create one account for each team (tick *Auto Confirm User*):
