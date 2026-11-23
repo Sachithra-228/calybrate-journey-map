@@ -90,7 +90,6 @@
   try { var sv = JSON.parse(localStorage.getItem(PKEY) || '{}'); if (sv.photo) PROF.photo = sv.photo; } catch (e) { /* ignore */ }
   var saveProf = function () { try { localStorage.setItem(PKEY, JSON.stringify({ photo: PROF.photo })); } catch (e) { /* ignore */ } };
   var initials = function (n) { var p = String(n).split(' '); return ((p[0][0] || '') + (p[1] ? p[1][0] : '')).toUpperCase(); };
-  var profPct = function () { return PROF.photo ? 100 : 75; };
 
   /* ---------- small pieces ---------- */
   function ring(p, size, sw) {
@@ -117,19 +116,17 @@
   /* ---------- shell ---------- */
   var NAV = [['dashboard', 'Dashboard', 'dash'], ['campaigns', 'Campaigns', 'camp'], ['reports', 'Reports', 'rep'], ['users', 'Users', 'users']];
   function chip() {
-    var role = isSuper() ? '<span class="pm-role super">' + ic('crown', 'si') + ' Super Admin</span>' : '<span class="pm-role">' + ic('user', 'si') + ' Admin</span>';
     var face = PROF.photo ? '<img src="' + PROF.photo + '" alt="">' : esc(initials(PROF.name));
-    return '<div class="chipwrap"><button class="me" data-a="menu" data-tour="chip" aria-haspopup="true" aria-label="Open profile menu"><span class="av ' + (PROF.photo ? 'has' : 'd') + ' aura">' + face + '</span><span><b>' + esc(PROF.name) + '</b><small>' + (isSuper() ? ic('crown', 'si') + ' Super Admin' : ic('user', 'si') + ' Admin') + '</small></span>' + ic('down') + '</button>' +
+    var roleTxt = isSuper() ? ic('crown', 'si') + ' Super Admin' : ic('user', 'si') + ' Admin';
+    return '<div class="chipwrap"><button class="me" data-a="menu" data-tour="chip" aria-haspopup="true" aria-label="Open profile menu"><span class="av ' + (PROF.photo ? 'has' : 'd') + '">' + face + '</span><span><b>' + esc(PROF.name) + '</b><small>' + roleTxt + '</small></span>' + ic('down') + '</button>' +
       '<div class="menu pm" id="menu" role="menu">' +
-      '<div class="pm-hero"><svg class="pm-mesh" viewBox="0 0 320 150" aria-hidden="true"><g stroke="rgba(255,255,255,.28)" stroke-width="1" fill="none"><path d="M0 110L60 70 120 96 190 44 260 82 320 36"/><path d="M0 40L70 20 130 50 200 14 270 40 320 16"/><path d="M40 150L90 112 150 130 220 96 290 126"/></g><g fill="rgba(255,255,255,.7)"><circle cx="60" cy="70" r="2.4"/><circle cx="190" cy="44" r="2.4"/><circle cx="130" cy="50" r="2"/><circle cx="260" cy="82" r="2.4"/><circle cx="150" cy="130" r="2"/></g></svg><i class="pm-orb a"></i><i class="pm-orb b"></i>' +
-      '<div class="pm-avwrap" data-a="photo" tabindex="0" role="button" aria-label="Change profile photo"><span class="pm-ring"></span><span class="pm-av ' + (PROF.photo ? 'has' : '') + '">' + face + '</span><span class="pm-cam">' + ic('camera') + '</span><span class="pm-drop">Drop photo</span></div>' +
-      '<div class="pm-id"><b>' + esc(PROF.name) + '</b><small>' + esc(PROF.email) + '</small></div><div class="pm-tags">' + role + '<span class="pm-org">' + ic('org', 'si') + ' ' + esc(PROF.org) + '</span></div></div>' +
-      '<div class="pm-body"><div class="pm-nudge' + (PROF.photo ? ' done' : '') + '">' + ic(PROF.photo ? 'shield' : 'spark', 'si') + '<div><b>' + (PROF.photo ? 'Profile complete' : 'Profile ' + profPct() + '% complete') + '</b><span>' + (PROF.photo ? 'Your team will recognise you.' : 'Add a photo so your team recognises you.') + '</span><div class="pm-meter"><i style="width:' + profPct() + '%"></i></div></div></div>' +
-      '<button class="pm-item" role="menuitem" data-a="photo"><span class="pm-t">' + ic('camera') + '</span><span class="pm-tx"><b>' + (PROF.photo ? 'Change photo' : 'Upload photo') + '</b><small>JPG or PNG, up to 5 MB</small></span>' + ic('right', 'si pm-ch') + '</button>' +
-      '<button class="pm-item" role="menuitem" data-a="pwd"><span class="pm-t">' + ic('key') + '</span><span class="pm-tx"><b>Update password</b><small>Keep your account secure</small></span>' + ic('right', 'si pm-ch') + '</button>' +
+      '<div class="pm-head"><div class="pm-avwrap" data-a="photo" tabindex="0" role="button" aria-label="Change profile photo" title="Change photo"><span class="pm-av ' + (PROF.photo ? 'has' : '') + '">' + face + '</span><span class="pm-cam">' + ic('camera') + '</span><span class="pm-drop">Drop</span></div>' +
+      '<div class="pm-id"><b>' + esc(PROF.name) + '</b><small>' + esc(PROF.email) + '</small><span class="pm-role' + (isSuper() ? ' super' : '') + '">' + roleTxt + '</span></div></div>' +
+      '<div class="pm-list"><button class="pm-item" role="menuitem" data-a="photo">' + ic('camera') + (PROF.photo ? 'Change photo' : 'Upload photo') + '</button>' +
+      '<button class="pm-item" role="menuitem" data-a="pwd">' + ic('key') + 'Update password</button></div>' +
       '<div class="pm-prev"><h6>Preview as</h6><div class="pm-seg"><button data-a="role" data-r="super" class="' + (isSuper() ? 'on' : '') + '">' + ic('crown') + ' Super Admin</button><button data-a="role" data-r="admin" class="' + (!isSuper() ? 'on' : '') + '">' + ic('user') + ' Admin</button></div></div>' +
-      '<button class="pm-item out" role="menuitem" data-a="logout"><span class="pm-t">' + ic('logout') + '</span><span class="pm-tx"><b>Log out</b><small>End this session</small></span></button>' +
-      '<input type="file" id="pfile" accept="image/*" hidden></div></div></div>';
+      '<div class="pm-list last"><button class="pm-item out" role="menuitem" data-a="logout">' + ic('logout') + 'Log out</button></div>' +
+      '<input type="file" id="pfile" accept="image/*" hidden></div></div>';
   }
   function layout(title, sub, body, extra) {
     var navB = NAV.map(function (n) { return '<button class="' + (S.page === n[0] ? 'on' : '') + '" data-a="nav" data-p="' + n[0] + '" data-tour="' + n[0] + '">' + ic(n[2]) + n[1] + '</button>'; }).join('');
