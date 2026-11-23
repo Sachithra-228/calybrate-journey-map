@@ -77,6 +77,7 @@
 
   /* ---------- state ---------- */
   var S = { role: 'super', page: 'dashboard', type: null, cid: null, cul: false, rep: null, rtab: 'lead', ptab: 'all', pq: '', utab: 'emp', uid: null, q: '', chip: 'all', pg: 1, fil: { status: [], type: [] }, tour: -1, toured: false, lvlTree: false, cm: 0 };
+  if (window.DASH_ROLE === 'admin') S.role = 'admin';
   var W = null;
   var isSuper = function () { return S.role === 'super'; };
   var cnt = function (t) { return CAMPS.filter(function (c) { return c.type === t; }); };
@@ -85,8 +86,8 @@
   var avatar = function (n, d) { var p = String(n).split(' '); return '<span class="av' + (d ? ' d' : '') + '">' + esc((p[0][0] || '') + (p[1] ? p[1][0] : '')) + '</span>'; };
 
   /* ---------- profile (name, role, photo). The photo is kept in this browser only. ---------- */
-  var PKEY = 'calybrate-dash-profile';
-  var PROF = { name: 'Testing Owner', email: 'owner@testing-company.com', org: 'Testing Company', photo: '' };
+  var PKEY = 'calybrate-dash-profile-' + S.role;
+  var PROF = S.role === 'admin' ? { name: 'Testing HR Lead', email: 'hr.lead@testing-company.com', org: 'Testing Company', photo: '' } : { name: 'Testing Owner', email: 'owner@testing-company.com', org: 'Testing Company', photo: '' };
   try { var sv = JSON.parse(localStorage.getItem(PKEY) || '{}'); if (sv.photo) PROF.photo = sv.photo; } catch (e) { /* ignore */ }
   var saveProf = function () { try { localStorage.setItem(PKEY, JSON.stringify({ photo: PROF.photo })); } catch (e) { /* ignore */ } };
   var initials = function (n) { var p = String(n).split(' '); return ((p[0][0] || '') + (p[1] ? p[1][0] : '')).toUpperCase(); };
@@ -124,7 +125,6 @@
       '<div class="pm-id"><b>' + esc(PROF.name) + '</b><small>' + esc(PROF.email) + '</small><span class="pm-role' + (isSuper() ? ' super' : '') + '">' + roleTxt + '</span></div></div>' +
       '<div class="pm-list"><button class="pm-item" role="menuitem" data-a="photo">' + ic('camera') + (PROF.photo ? 'Change photo' : 'Upload photo') + '</button>' +
       '<button class="pm-item" role="menuitem" data-a="pwd">' + ic('key') + 'Update password</button></div>' +
-      '<div class="pm-prev"><h6>Preview as</h6><div class="pm-seg"><button data-a="role" data-r="super" class="' + (isSuper() ? 'on' : '') + '">' + ic('crown') + ' Super Admin</button><button data-a="role" data-r="admin" class="' + (!isSuper() ? 'on' : '') + '">' + ic('user') + ' Admin</button></div></div>' +
       '<div class="pm-list last"><button class="pm-item out" role="menuitem" data-a="logout">' + ic('logout') + 'Log out</button></div>' +
       '<input type="file" id="pfile" accept="image/*" hidden></div></div>';
   }
